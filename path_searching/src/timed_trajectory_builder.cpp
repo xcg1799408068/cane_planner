@@ -2,7 +2,6 @@
 
 #include <algorithm>
 #include <cmath>
-#include <limits>
 
 namespace cane_planner
 {
@@ -17,87 +16,19 @@ double yawOf(const Eigen::Vector2d &delta, double fallback)
     return std::atan2(delta.y(), delta.x());
 }
 
-double distanceToPolyline(const Eigen::Vector2d &p, const std::vector<Eigen::Vector2d> &route)
-{
-    double best = std::numeric_limits<double>::infinity();
-    for (std::size_t i = 0; i + 1 < route.size(); ++i)
-    {
-        const Eigen::Vector2d a = route[i];
-        const Eigen::Vector2d ab = route[i + 1] - a;
-        const double len_sq = ab.squaredNorm();
-        if (len_sq < kEps * kEps)
-            continue;
-        double u = (p - a).dot(ab) / len_sq;
-        u = std::max(0.0, std::min(1.0, u));
-        best = std::min(best, (p - (a + u * ab)).norm());
-    }
-    return best;
-}
-
-double polylineLength(const std::vector<Eigen::Vector2d> &route)
-{
-    double total = 0.0;
-    for (std::size_t i = 0; i + 1 < route.size(); ++i)
-        total += (route[i + 1] - route[i]).norm();
-    return total;
-}
-
 } // namespace
-
-double TimedTrajectoryBuilder::maxDeviationFromRoute(
-    const std::vector<Eigen::Vector3d> &path,
-    const std::vector<Eigen::Vector2d> &route,
-    double max_length)
-{
-    if (path.size() < 2 || route.size() < 2)
-        return 0.0;
-
-    // Stop at whichever runs out first. Beyond the route's own end every point
-    // projects onto its last vertex, so the "distance" there is mostly along
-    // track and would reject a perfectly on-route prediction.
-    double budget = polylineLength(route);
-    if (max_length > kEps)
-        budget = std::min(budget, max_length);
-
-    double worst = distanceToPolyline(path.front().head(2), route);
-    double accum = 0.0;
-    for (std::size_t i = 1; i < path.size(); ++i)
-    {
-        accum += (path[i].head(2) - path[i - 1].head(2)).norm();
-        if (accum > budget)
-            break;
-        worst = std::max(worst, distanceToPolyline(path[i].head(2), route));
-    }
-    return worst;
-}
 
 TimedTrajectory TimedTrajectoryBuilder::buildNominal(
     const std::vector<Eigen::Vector3d> &previous_mppi_path,
     const std::vector<Eigen::Vector2d> &global_reference,
     double mppi_dt,
     double reference_speed,
-    double max_length,
-    bool prefer_global_reference,
-    double max_route_deviation)
+    double max_length)
 {
-    TimedTrajectory from_route = fromGlobalReference(global_reference, reference_speed, max_length);
-    TimedTrajectory from_prediction = fromPreviousMppi(previous_mppi_path, mppi_dt, max_length);
-
-    // Only one usable input: no rule to apply.
-    if (!from_prediction.valid())
-        return from_route;
-    if (!from_route.valid())
-        return from_prediction;
-
-    if (prefer_global_reference)
-        return from_route;
-
-    if (max_route_deviation > kEps &&
-        maxDeviationFromRoute(previous_mppi_path, global_reference, max_length) >
-            max_route_deviation)
-        return from_route;
-
-    return from_prediction;
+    TimedTrajectory timed = fromPreviousMppi(previous_mppi_path, mppi_dt, max_length);
+    if (timed.valid())
+        return timed;
+    return fromGlobalReference(global_reference, reference_speed, max_length);
 }
 
 TimedTrajectory TimedTrajectoryBuilder::fromPreviousMppi(

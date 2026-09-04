@@ -235,49 +235,8 @@ std::vector<Eigen::Vector2d> buildHumanCaneFootprintWorld(
         nh.param("mpc/nominal_al", mpc_nominal_al_, 0.40);
         nh.param("lfpc/t_sup", lfpc_t_sup_, 0.35);
         nh.param("lfpc/delta_t", lfpc_delta_t_, 0.07);
-
-        nh.param("intervention/enable", intervention_enable_, false);
-        std::string intervention_method = "ours";
-        nh.param("intervention/method", intervention_method, intervention_method);
-        if (intervention_method == "b0" || intervention_method == "human_only")
-            intervention_method_ = InterventionMethod::B0_HUMAN_ONLY;
-        else if (intervention_method == "b1" || intervention_method == "boundary")
-            intervention_method_ = InterventionMethod::B1_BOUNDARY;
-        else if (intervention_method == "b2" || intervention_method == "continuous")
-            intervention_method_ = InterventionMethod::B2_CONTINUOUS;
-        else
-            intervention_method_ = InterventionMethod::OURS;
-        nh.param("intervention/corridor_tolerance", intervention_config_.corridor_tolerance, 0.02);
-        nh.param("intervention/p_safe", intervention_config_.p_safe, 0.8);
-        nh.param("intervention/min_candidate_margin", intervention_config_.min_candidate_margin, 0.0);
-        nh.param("intervention/eta_warn", intervention_config_.eta_warn, 0.25);
-        nh.param("intervention/T_warn", intervention_config_.T_warn, 0.5);
-        nh.param("intervention/T_guide", intervention_config_.T_guide, 0.25);
-        nh.param("intervention/J_guide", intervention_config_.J_guide, 0.15);
-        nh.param("intervention/guide_hold_time", intervention_config_.guide_hold_time, 1.0);
-        nh.param("intervention/guide_lookahead", intervention_config_.guide_lookahead_dist, 1.0);
-        nh.param("intervention/require_native_valid", intervention_config_.require_native_valid, true);
-        nh.param("intervention/guide_route_weight", intervention_config_.guide_route_weight, 1.0);
-        nh.param("intervention/T_stop", intervention_config_.T_stop, 0.1);
-        // Walk-clock seconds: 1.75 = 5 gait decisions, 3.5 = 10, matching the
-        // frame counts these windows were originally validated at.
-        nh.param("intervention/stop_entry_window", intervention_config_.stop_entry_window, 1.75);
-        nh.param("intervention/stop_release_window", intervention_config_.stop_release_window, 3.5);
-        nh.param("intervention/stop_entry_vote_ratio", intervention_config_.stop_entry_vote_ratio, 0.8);
-        nh.param("intervention/stop_release_vote_ratio", intervention_config_.stop_release_vote_ratio, 0.8);
-        nh.param("intervention/boundary_trigger_margin", intervention_boundary_trigger_margin_, 0.10);
-        nh.param("intervention/heading_reaction_delay", intervention_heading_reaction_delay_, 0.35);
-        nh.param("intervention/heading_compliance", intervention_heading_compliance_, 0.6);
-        nh.param("intervention/max_heading_correction", intervention_max_heading_correction_, 0.174532925199);
-        nh.param("intervention/heading_rate_limit", intervention_heading_rate_limit_, 0.1);
-        nh.param("intervention/stop_reaction_delay", intervention_stop_reaction_delay_, 0.35);
-        intervention_heading_reaction_delay_ = std::max(0.0, intervention_heading_reaction_delay_);
-        intervention_heading_compliance_ = std::max(0.0, std::min(1.0, intervention_heading_compliance_));
-        intervention_max_heading_correction_ = std::max(0.0, intervention_max_heading_correction_);
-        intervention_stop_reaction_delay_ = std::max(0.0, intervention_stop_reaction_delay_);
-        intervention_evaluator_ = HumanSafetyEvaluator(intervention_config_);
-        intervention_policy_ = InterventionPolicy(intervention_config_);
     }
+
 
     void PlannerManager::init(ros::NodeHandle &nh)
     {
@@ -340,8 +299,6 @@ std::vector<Eigen::Vector2d> buildHumanCaneFootprintWorld(
             dynamic_walking_corridor_.reset(new DynamicWalkingCorridor);
             dynamic_walking_corridor_->setParam(nh);
             dynamic_walking_corridor_->setCollision(collision_);
-            nh.param("dwc/spine_prefer_global", corridor_spine_prefer_global_, false);
-            nh.param("dwc/spine_route_deviation", corridor_spine_route_deviation_, 0.6);
         }
         bool convex_corridor_enable = false;
         nh.param("convex_corridor/enable", convex_corridor_enable, false);
@@ -379,7 +336,7 @@ std::vector<Eigen::Vector2d> buildHumanCaneFootprintWorld(
         start_sub_ =
             nh.subscribe("/initialpose", 1, &PlannerManager::startCallback, this);
         // 订阅动态障碍物信息话题
-        dyn_obs_sub_ = nh.subscribe("/onboard_detector/dynamic_obstacles_info", 10,
+        dyn_obs_sub_ = nh.subscribe("/onboard_detector/dynamic_obstacles_info", 10, 
                                      &PlannerManager::dynamicObstaclesCallback, this);
         // Timer
         exec_timer_ =
@@ -416,13 +373,6 @@ std::vector<Eigen::Vector2d> buildHumanCaneFootprintWorld(
         mpc_walking_corridor_debug_pub_ = nh.advertise<std_msgs::String>("/mpc/walking_corridor_debug", 10);
         mpc_convex_corridor_pub_ = nh.advertise<visualization_msgs::MarkerArray>("/mpc/convex_corridor", 10);
         mpc_convex_corridor_debug_pub_ = nh.advertise<std_msgs::String>("/mpc/convex_corridor_debug", 10);
-        intervention_state_pub_ = nh.advertise<std_msgs::String>("/mpc/intervention/state", 10);
-        intervention_metrics_pub_ = nh.advertise<std_msgs::Float64MultiArray>("/mpc/intervention/metrics", 10);
-        intervention_heading_pub_ = nh.advertise<std_msgs::Float64>("/mpc/intervention/heading_target", 10);
-        intervention_heading_active_pub_ = nh.advertise<std_msgs::Bool>("/mpc/intervention/heading_active", 10);
-        intervention_selected_traj_pub_ = nh.advertise<nav_msgs::Path>("/mpc/intervention/selected_trajectory", 10);
-        intervention_heading_marker_pub_ = nh.advertise<visualization_msgs::Marker>(
-            "/mpc/intervention/heading_target_marker", 10);
         if (gazebo_sim_)
         {
             cmd_vel_pub_ = nh.advertise<geometry_msgs::Twist>("/cmd_vel_footprint", 10);
@@ -876,124 +826,27 @@ std::vector<Eigen::Vector2d> buildHumanCaneFootprintWorld(
     TimedTrajectory PlannerManager::buildWalkingCorridorNominalTrajectory(
         const Eigen::Vector3d& current_pose) const
     {
+        std::vector<Eigen::Vector3d> previous_mppi_path;
+        previous_mppi_path.push_back(current_pose);
+
+        if (!last_corridor_feasible_mppi_path_.empty())
+        {
+            for (const auto& point : last_corridor_feasible_mppi_path_)
+            {
+                if ((point.head(2) - current_pose.head(2)).norm() < 0.05)
+                    continue;
+                previous_mppi_path.push_back(point);
+            }
+        }
+
         const auto reference_path = buildWalkingCorridorReferencePath(current_pose);
         const auto cfg = dynamic_walking_corridor_->getConfig();
-
-        // Still pruned even when the global route is preferred: the prediction
-        // remains the fallback for the frames where the route is unusable (no
-        // global plan yet, or less than two points left near the goal), and a
-        // prediction folded back over ground already walked is no better a
-        // fallback than no fallback at all.
-        const auto previous_mppi_path = pruneMppiPathForward(
-            current_pose,
-            last_corridor_feasible_mppi_path_,
-            reference_path,
-            std::max(0.15, cfg.half_width),
-            std::max(0.5, cfg.static_min_feasible_length));
-
         return TimedTrajectoryBuilder::buildNominal(
             previous_mppi_path,
             reference_path,
             std::max(0.01, lfpc_delta_t_),
             std::max(0.1, cfg.robot_speed),
-            std::max(0.5, cfg.length),
-            corridor_spine_prefer_global_,
-            corridor_spine_route_deviation_);
-    }
-
-    // Reusing the previous MPPI prediction is only valid for the part that is
-    // still in front of the robot. Prepending the whole prediction makes the
-    // corridor reference run backwards over the points already walked and then
-    // forwards again; that fold reverses the corridor start direction, shifts
-    // the segment times and collapses the timed cells, so every rollout leaves
-    // the corridor at small t and the plan is rejected.
-    std::vector<Eigen::Vector3d> PlannerManager::pruneMppiPathForward(
-        const Eigen::Vector3d& current_pose,
-        const std::vector<Eigen::Vector3d>& previous_path,
-        const std::vector<Eigen::Vector2d>& reference_path,
-        double max_lateral_offset,
-        double min_forward_length) const
-    {
-        // cos(120 deg): a normal corner stays, a U-turn or loop is cut off.
-        const double min_turn_cos = -0.5;
-        const double dedup_dist = 0.05;
-
-        std::vector<Eigen::Vector3d> pruned;
-        if (previous_path.size() < 2)
-            return pruned;
-
-        const Eigen::Vector2d current = current_pose.head(2);
-
-        // Orthogonal projection of the robot onto the previous prediction.
-        double best_dist_sq = std::numeric_limits<double>::infinity();
-        size_t best_seg = 0;
-        for (size_t i = 0; i + 1 < previous_path.size(); ++i)
-        {
-            const Eigen::Vector2d a = previous_path[i].head(2);
-            const Eigen::Vector2d ab = previous_path[i + 1].head(2) - a;
-            const double len_sq = ab.squaredNorm();
-            if (len_sq < 1e-12)
-                continue;
-            double u = (current - a).dot(ab) / len_sq;
-            u = std::max(0.0, std::min(1.0, u));
-            const double dist_sq = (current - (a + u * ab)).squaredNorm();
-            if (dist_sq < best_dist_sq)
-            {
-                best_dist_sq = dist_sq;
-                best_seg = i;
-            }
-        }
-
-        // The robot is no longer on its own prediction (stop, warm-start reset
-        // or an intervention heading override): the prediction is stale.
-        if (!std::isfinite(best_dist_sq) ||
-            std::sqrt(best_dist_sq) > max_lateral_offset)
-            return pruned;
-
-        // Keep the robot as the corridor start, then only what follows the
-        // projection; everything at or behind it has already been walked.
-        pruned.push_back(current_pose);
-        double forward_length = 0.0;
-        Eigen::Vector2d prev = current;
-        Eigen::Vector2d first_forward = Eigen::Vector2d::Zero();
-        for (size_t i = best_seg + 1; i < previous_path.size(); ++i)
-        {
-            const Eigen::Vector2d next = previous_path[i].head(2);
-            const Eigen::Vector2d seg = next - prev;
-            const double seg_len = seg.norm();
-            if (seg_len < dedup_dist)
-                continue;
-
-            const Eigen::Vector2d dir = seg / seg_len;
-            if (first_forward.squaredNorm() < 1e-12)
-                first_forward = dir;
-            else if (dir.dot(first_forward) < min_turn_cos)
-                break;
-
-            pruned.push_back(previous_path[i]);
-            forward_length += seg_len;
-            prev = next;
-        }
-
-        // Too little of the prediction is left to describe a corridor. This is
-        // the normal case on the final approach, where the rollout already
-        // stopped early at the goal.
-        if (pruned.size() < 2 || forward_length < min_forward_length)
-        {
-            pruned.clear();
-            return pruned;
-        }
-
-        // Pointing away from the planned route: prefer the global reference so
-        // the corridor cannot keep curling in the wrong direction.
-        if (reference_path.size() >= 2)
-        {
-            const Eigen::Vector2d ref_dir = reference_path[1] - reference_path[0];
-            if (ref_dir.norm() > 1e-6 &&
-                first_forward.dot(ref_dir.normalized()) < 0.0)
-                pruned.clear();
-        }
-        return pruned;
+            std::max(0.5, cfg.length));
     }
 
     std::vector<Eigen::Vector2d> PlannerManager::buildWalkingCorridorReferencePath(
@@ -1747,12 +1600,12 @@ std::vector<Eigen::Vector2d> buildHumanCaneFootprintWorld(
         publishDynamicObstacleBodies(msg);
 
         std::lock_guard<std::mutex> lock(dynObsMutex_);
-
+        
         // 清空旧数据
         dynObsPos_.clear();
         dynObsVel_.clear();
         dynObsSize_.clear();
-
+        
         // 从消息中提取动态障碍物信息
         for (size_t i = 0; i < msg->num; ++i) {
             Eigen::Vector3d pos(msg->position[i].x, msg->position[i].y, msg->position[i].z);
@@ -1760,11 +1613,11 @@ std::vector<Eigen::Vector2d> buildHumanCaneFootprintWorld(
             Eigen::Vector3d size(msg->size[i].x,
                                  msg->size[i].y,
                                  msg->size[i].z);
-
+            
             dynObsPos_.push_back(pos);
             dynObsVel_.push_back(vel);
             dynObsSize_.push_back(size);
-            // cout<<"Dynamic Obstacle " << i << ": Pos(" << pos.transpose() << "), Vel(" << vel.transpose() << "), Size(" << size.transpose() << ")" << endl;
+            // cout<<"Dynamic Obstacle " << i << ": Pos(" << pos.transpose() << "), Vel(" << vel.transpose() << "), Size(" << size.transpose() << ")" << endl; 
         }
     }
 
@@ -2089,7 +1942,7 @@ std::vector<Eigen::Vector2d> buildHumanCaneFootprintWorld(
         static int num = 0;
 
         kin_finder_->reset();
-        num++;
+        num++;       
         // ==================== 从缓存获取动态障碍物信息（通过话题订阅更新） ====================
         {
             std::lock_guard<std::mutex> lock(dynObsMutex_);
@@ -2098,7 +1951,7 @@ std::vector<Eigen::Vector2d> buildHumanCaneFootprintWorld(
             // cout<<"Set " << dynObsPos_.size() << " dynamic obstacles to kinodynamic A*." << endl;
         }
         // =========================================================================
-
+        
         start_pt_(0) = odom_pos_(0);
         start_pt_(1) = odom_pos_(1);
         start_state_(0) = odom_pos_(0);
@@ -2318,13 +2171,6 @@ std::vector<Eigen::Vector2d> buildHumanCaneFootprintWorld(
         mpc_stop_enter_time_ = ros::Time(0);
         mpc_stop_clear_since_ = ros::Time(0);
         mpc_latched_stop_reason_ = "OK";
-        intervention_policy_.reset();
-        intervention_metrics_ = HumanSafetyResult();
-        intervention_decision_ = InterventionDecision();
-        intervention_state_logged_ = false;
-        intervention_logged_state_ = InterventionState::FREE;
-        intervention_walk_time_ = 0.0;
-        resetInterventionResponse();
         mpc_interaction_scene_ = SCENE_NONE;
         mpc_interaction_mode_ = MODE_CONTINUE;
         mpc_interaction_debug_ = InteractionDebug();
@@ -2438,14 +2284,6 @@ std::vector<Eigen::Vector2d> buildHumanCaneFootprintWorld(
         if (planner_ == 4)
             return kinematicMppiSimStep();
 
-        // One FSM tick is one gait decision, and a gait decision takes lfpc/t_sup
-        // of physical time whether or not the foot ends up moving. Advancing here
-        // rather than next to updateOneStep() matters: the STOP and no-valid-plan
-        // branches below return before the step is applied, and a clock that
-        // froze there could never let stop_release_window elapse, latching
-        // STOP_ADVICE forever.
-        intervention_walk_time_ += std::max(1e-3, lfpc_t_sup_);
-
         // 从缓存获取动态障碍物
         std::vector<Eigen::Vector3d> obs_pos, obs_vel, obs_size;
         {
@@ -2537,28 +2375,6 @@ std::vector<Eigen::Vector2d> buildHumanCaneFootprintWorld(
 
         Eigen::Vector3d control = mpc_controller_->plan(
             lfpc_model_, mpc_sim_goal_, obs_pos, obs_vel, obs_size);
-
-        if (intervention_enable_)
-        {
-            intervention_metrics_ = intervention_evaluator_.evaluate(
-                mpc_controller_->getCandidateSnapshot(), corridor_result.timed_corridor);
-            intervention_decision_ = intervention_policy_.update(
-                intervention_walk_time_, intervention_metrics_, intervention_method_);
-            logInterventionTransition();
-            if (intervention_method_ == InterventionMethod::OURS && simulation_)
-            {
-                const double now = intervention_walk_time_;
-                const double current_heading = lfpc_model_->getNextIterState()(2);
-                control(2) = applyInterventionHeadingResponse(
-                    intervention_decision_.heading_active ?
-                        intervention_decision_.heading_target : current_heading, now);
-            }
-            else if (intervention_method_ == InterventionMethod::OURS)
-            {
-                // The response adapter is simulation-only; hardware keeps the native command.
-            }
-            publishIntervention(corridor_result.timed_corridor);
-        }
         {
             const auto dbg = mpc_controller_->getDebugMetrics();
             const bool selected_path_is_corridor_feasible =
@@ -2615,17 +2431,9 @@ std::vector<Eigen::Vector2d> buildHumanCaneFootprintWorld(
         const bool no_feasible_trajectory_stop_active =
             mpc_corridor_stop_enable_ && trajectory_feasibility.shouldStop();
 
-        const bool intervention_stop_active =
-            intervention_enable_ && intervention_method_ == InterventionMethod::OURS &&
-            intervention_decision_.stop_advice;
         bool raw_stop_advice = false;
         std::string raw_stop_reason = "OK";
-        if (mpc_stop_advice_enable_ && intervention_stop_active)
-        {
-            raw_stop_advice = true;
-            raw_stop_reason = "INTERVENTION_DANGER_WINDOW";
-        }
-        else if (mpc_stop_advice_enable_ && no_feasible_trajectory_stop_active)
+        if (mpc_stop_advice_enable_ && no_feasible_trajectory_stop_active)
         {
             raw_stop_advice = true;
             raw_stop_reason = trajectory_feasibility.stopReason();
@@ -2714,10 +2522,7 @@ std::vector<Eigen::Vector2d> buildHumanCaneFootprintWorld(
             reason_msg.data = stop_reason;
             mpc_stop_reason_pub_.publish(reason_msg);
         }
-        const bool intervention_stop_applied = applyInterventionStopResponse(
-            intervention_stop_active && stop_advice, intervention_walk_time_);
-        if (stop_advice && mpc_stop_advice_enforce_ &&
-            (!intervention_stop_active || intervention_stop_applied))
+        if (stop_advice && mpc_stop_advice_enforce_)
         {
             mpc_controller_->resetWarmStart();
             ROS_WARN_THROTTLE(0.5, "[MPC] STOP advice enforced reason=%s clearance=%.2f ttc=%.2f valid=%.2f",
@@ -2725,15 +2530,7 @@ std::vector<Eigen::Vector2d> buildHumanCaneFootprintWorld(
                               std::isfinite(dbg.min_dynamic_clearance) ? dbg.min_dynamic_clearance : -1.0,
                               std::isfinite(dbg.min_cpa_time) ? dbg.min_cpa_time : -1.0,
                               dbg.valid_sample_ratio);
-            // Deliberately NOT resetting mpc_stuck_steps_ here. The watchdog
-            // above increments it whenever the robot has not moved and replans
-            // after STUCK_THRESHOLD ticks, which is the only way out of a stop
-            // that cannot clear: an enforced stop freezes the robot, a frozen
-            // robot leaves the geometry unchanged, and unchanged geometry keeps
-            // the stop enforced. Resetting here zeroed the counter on the same
-            // tick that incremented it, so it never passed 1 and the escape
-            // never fired (ours_pilot18: STOP_ADVICE on 78 of 84 ticks, frozen
-            // for the whole 7.8 s recording).
+            mpc_stuck_steps_ = 0;
             publishFovRange();
             publishCurrentWaypoint();
             publishWaypointsList();
@@ -2799,27 +2596,6 @@ std::vector<Eigen::Vector2d> buildHumanCaneFootprintWorld(
         lfpc_model_->prepareNextStep();
 
         Eigen::Vector3d new_com = lfpc_model_->getCOMPos();
-
-        // Check the final goal after this LFPC step before issuing another command.
-        if ((new_com.head(2) - end_pt_).norm() < global_wp_arrival_radius_)
-        {
-            mpc_reached_goal_ = true;
-            ROS_WARN("[MPC] Reached final goal at (%.2f, %.2f), %d steps",
-                     new_com(0), new_com(1), mpc_step_count_);
-            if (gazebo_sim_)
-            {
-                geometry_msgs::Twist cmd;
-                cmd_vel_pub_.publish(cmd);  // zero stop
-            }
-            else
-            {
-                odom_pos_(0) = new_com(0);
-                odom_pos_(1) = new_com(1);
-                odom_pos_(2) = new_com(2);
-                publishSimOdom();
-            }
-            return true;
-        }
 
         // Gazebo: virtual human push. The cane has no lateral drive; we command
         // forward speed plus yaw rate, and use the steering joint only for the
@@ -3300,226 +3076,6 @@ std::vector<Eigen::Vector2d> buildHumanCaneFootprintWorld(
         ros::Duration(0.001).sleep();
     }
 
-    void PlannerManager::resetInterventionResponse()
-    {
-        intervention_heading_pending_since_ = -1.0;
-        intervention_stop_pending_since_ = -1.0;
-        intervention_heading_response_active_ = false;
-        intervention_stop_response_active_ = false;
-        intervention_applied_correction_ = 0.0;
-    }
-
-    double PlannerManager::applyInterventionHeadingResponse(const double planned_heading,
-                                                            const double now)
-    {
-        if (!intervention_enable_ || intervention_method_ != InterventionMethod::OURS ||
-            !intervention_decision_.heading_active || !std::isfinite(planned_heading))
-        {
-            intervention_heading_pending_since_ = -1.0;
-            intervention_heading_response_active_ = false;
-            intervention_applied_correction_ = 0.0;
-            return 0.0;
-        }
-        if (intervention_heading_pending_since_ < 0.0)
-            intervention_heading_pending_since_ = now;
-        const bool matured = now - intervention_heading_pending_since_ + 1e-9 >=
-                              intervention_heading_reaction_delay_;
-        intervention_heading_response_active_ = matured;
-        if (!matured)
-        {
-            intervention_applied_correction_ = 0.0;
-            return 0.0;
-        }
-        const double current_heading = lfpc_model_->getNextIterState()(2);
-        // planned_heading is an absolute bearing while current_heading is the
-        // LFPC's accumulated theta, which is congruent to the geometric heading
-        // modulo 2*pi; wrapping the difference is what makes the two comparable.
-        const double error = std::atan2(std::sin(planned_heading - current_heading),
-                                        std::cos(planned_heading - current_heading));
-        const double desired =
-            std::max(-intervention_max_heading_correction_,
-                     std::min(intervention_max_heading_correction_,
-                              intervention_heading_compliance_ * error));
-        // Ramp toward the desired deflection. Without this the cue is a step
-        // input: the response can go from straight to full deflection in one
-        // 0.40 m step, which bends the executed path far harder than the native
-        // planner ever does and makes the corridor built from that path curve
-        // with it.
-        const double limit = std::max(0.0, intervention_heading_rate_limit_);
-        const double delta = desired - intervention_applied_correction_;
-        intervention_applied_correction_ +=
-            std::max(-limit, std::min(limit, delta));
-        return intervention_applied_correction_;
-    }
-
-    bool PlannerManager::applyInterventionStopResponse(const bool stop_advice,
-                                                        const double now)
-    {
-        if (!intervention_enable_ || intervention_method_ != InterventionMethod::OURS ||
-            !stop_advice)
-        {
-            intervention_stop_pending_since_ = -1.0;
-            intervention_stop_response_active_ = false;
-            return false;
-        }
-        if (intervention_stop_pending_since_ < 0.0)
-            intervention_stop_pending_since_ = now;
-        intervention_stop_response_active_ =
-            now - intervention_stop_pending_since_ + 1e-9 >=
-            intervention_stop_reaction_delay_;
-        return intervention_stop_response_active_;
-    }
-
-    // Log only on state changes: the policy runs every MPC cycle, so logging
-    // every frame would drown rosout. Entering STOP_ADVICE is a warning, the
-    // other transitions are informational.
-    void PlannerManager::logInterventionTransition()
-    {
-        if (intervention_state_logged_ &&
-            intervention_decision_.state == intervention_logged_state_)
-            return;
-
-        const char* from = intervention_state_logged_
-            ? toString(intervention_logged_state_) : "INIT";
-        const char* to = toString(intervention_decision_.state);
-        const double j_safe = std::isfinite(intervention_metrics_.J_safe_star)
-            ? intervention_metrics_.J_safe_star : -1.0;
-
-        if (intervention_decision_.state == InterventionState::STOP_ADVICE)
-        {
-            ROS_WARN("[Intervention] %s -> %s method=%s reason=%s safe=%zu/%zu eta=%.2f "
-                     "T_auto=%.2f margin=%.3f lat=%.3f at=%.2f J*=%.2f heading=%d cand=%d vote=%.2f/%.2f",
-                     from, to, toString(intervention_decision_.method),
-                     intervention_decision_.stop_reason.empty()
-                         ? "-" : intervention_decision_.stop_reason.c_str(),
-                     intervention_metrics_.safe_count, intervention_metrics_.total_count,
-                     intervention_metrics_.eta, intervention_metrics_.T_autonomy,
-                     std::isfinite(intervention_metrics_.best_margin)
-                         ? intervention_metrics_.best_margin : -9.0,
-                     std::isfinite(intervention_metrics_.best_lateral_margin)
-                         ? intervention_metrics_.best_lateral_margin : -9.0,
-                     intervention_metrics_.best_margin_time_fraction,
-                     j_safe,
-                     intervention_decision_.heading_active ? 1 : 0,
-                     intervention_decision_.selected_candidate,
-                     intervention_decision_.danger_vote_ratio,
-                     intervention_decision_.recovery_vote_ratio);
-        }
-        else
-        {
-            ROS_INFO("[Intervention] %s -> %s method=%s safe=%zu/%zu eta=%.2f "
-                     "T_auto=%.2f margin=%.3f lat=%.3f at=%.2f J*=%.2f heading=%d cand=%d vote=%.2f/%.2f",
-                     from, to, toString(intervention_decision_.method),
-                     intervention_metrics_.safe_count, intervention_metrics_.total_count,
-                     intervention_metrics_.eta, intervention_metrics_.T_autonomy,
-                     std::isfinite(intervention_metrics_.best_margin)
-                         ? intervention_metrics_.best_margin : -9.0,
-                     std::isfinite(intervention_metrics_.best_lateral_margin)
-                         ? intervention_metrics_.best_lateral_margin : -9.0,
-                     intervention_metrics_.best_margin_time_fraction,
-                     j_safe,
-                     intervention_decision_.heading_active ? 1 : 0,
-                     intervention_decision_.selected_candidate,
-                     intervention_decision_.danger_vote_ratio,
-                     intervention_decision_.recovery_vote_ratio);
-        }
-
-        intervention_logged_state_ = intervention_decision_.state;
-        intervention_state_logged_ = true;
-    }
-
-    void PlannerManager::publishIntervention(const TimedWalkingCorridor& corridor)
-    {
-        std_msgs::String state;
-        state.data = std::string(toString(intervention_decision_.state)) +
-                     " method=" + toString(intervention_decision_.method) +
-                     " stop_reason=" + intervention_decision_.stop_reason;
-        intervention_state_pub_.publish(state);
-
-        std_msgs::Float64 heading;
-        heading.data = intervention_decision_.heading_target;
-        intervention_heading_pub_.publish(heading);
-        std_msgs::Bool active;
-        active.data = intervention_decision_.heading_active;
-        intervention_heading_active_pub_.publish(active);
-
-        std_msgs::Float64MultiArray metrics;
-        metrics.data = {
-            static_cast<double>(intervention_metrics_.total_count),
-            static_cast<double>(intervention_metrics_.safe_count),
-            intervention_metrics_.eta,
-            intervention_metrics_.evaluation_horizon,
-            intervention_metrics_.T_autonomy,
-            std::isfinite(intervention_metrics_.J_safe_star) ? intervention_metrics_.J_safe_star : -1.0,
-            static_cast<double>(intervention_metrics_.selected_candidate),
-            static_cast<double>(intervention_metrics_.robust_selected_candidate),
-            intervention_metrics_.selected_heading,
-            intervention_decision_.dangerous ? 1.0 : 0.0,
-            intervention_decision_.pending_stop ? 1.0 : 0.0,
-            intervention_decision_.stop_advice ? 1.0 : 0.0,
-            intervention_decision_.danger_vote_ratio,
-            intervention_decision_.recovery_vote_ratio,
-            // Appended fields; indices 0-13 above keep their published order.
-            std::isfinite(intervention_metrics_.best_margin)
-                ? intervention_metrics_.best_margin : -9.0,
-            std::isfinite(intervention_metrics_.median_margin)
-                ? intervention_metrics_.median_margin : -9.0,
-            std::isfinite(intervention_metrics_.best_lateral_margin)
-                ? intervention_metrics_.best_lateral_margin : -9.0,
-            std::isfinite(intervention_metrics_.median_lateral_margin)
-                ? intervention_metrics_.median_lateral_margin : -9.0,
-            intervention_metrics_.best_margin_time_fraction,
-            // 19: heading correction actually applied to the plant this step, and
-            // 20: the walk clock the whole intervention layer is timed against.
-            // Without 19 a runaway response is invisible in the logs -- the orbit
-            // in ours_pilot9.bag had to be reconstructed from odometry.
-            intervention_applied_correction_,
-            intervention_walk_time_};
-        intervention_metrics_pub_.publish(metrics);
-
-        nav_msgs::Path selected;
-        selected.header.frame_id = "world";
-        selected.header.stamp = ros::Time::now();
-        const int index = intervention_metrics_.selected_candidate;
-        const auto& snapshot = mpc_controller_->getCandidateSnapshot();
-        if (index >= 0 && static_cast<size_t>(index) < snapshot.com_paths.size())
-        {
-            const auto& points = snapshot.com_paths[static_cast<size_t>(index)];
-            for (const auto& point : points)
-            {
-                geometry_msgs::PoseStamped pose;
-                pose.header = selected.header;
-                pose.pose.position.x = point.x();
-                pose.pose.position.y = point.y();
-                pose.pose.orientation.w = 1.0;
-                selected.poses.push_back(pose);
-            }
-        }
-        intervention_selected_traj_pub_.publish(selected);
-
-        visualization_msgs::Marker heading_marker;
-        heading_marker.header.frame_id = "world";
-        heading_marker.header.stamp = ros::Time::now();
-        heading_marker.ns = "mpc_intervention_heading_target";
-        heading_marker.id = 0;
-        heading_marker.action = intervention_decision_.heading_active
-            ? visualization_msgs::Marker::ADD : visualization_msgs::Marker::DELETE;
-        heading_marker.type = visualization_msgs::Marker::ARROW;
-        heading_marker.pose.position.x = odom_pos_(0);
-        heading_marker.pose.position.y = odom_pos_(1);
-        heading_marker.pose.position.z = 0.32;
-        heading_marker.pose.orientation = tf::createQuaternionMsgFromYaw(
-            intervention_decision_.heading_target);
-        heading_marker.scale.x = 0.8;
-        heading_marker.scale.y = 0.10;
-        heading_marker.scale.z = 0.10;
-        heading_marker.color.r = 1.0;
-        heading_marker.color.g = 0.35;
-        heading_marker.color.b = 0.05;
-        heading_marker.color.a = 0.95;
-        intervention_heading_marker_pub_.publish(heading_marker);
-    }
-
     void PlannerManager::publishMpcPath()
     {
         nav_msgs::Path path;
@@ -3778,10 +3334,10 @@ std::vector<Eigen::Vector2d> buildHumanCaneFootprintWorld(
 
         // displaySphereList(ctp, size2, color2, BSPLINE_CTRL_PT + id2 % 100);
     }
-
-
+    
+    
     void PlannerManager::displaySphereList(const vector<Eigen::Vector3d>& list) {
-
+ 
         nav_msgs::Path path;
         path.header.frame_id = "world";
         path.header.stamp = ros::Time::now();

@@ -3,7 +3,6 @@
 
 #include <iostream>
 #include <limits>
-#include <string>
 #include <vector>
 #include <mutex>
 
@@ -144,51 +143,6 @@ namespace cane_planner
         double mpc_nominal_al_ = 0.40;
         double lfpc_t_sup_ = 0.35;
         double lfpc_delta_t_ = 0.07;
-
-        // Optional autonomy-aware intervention layer (planner=3 only).
-        bool intervention_enable_ = false;
-        InterventionMethod intervention_method_ = InterventionMethod::OURS;
-        HumanSafetyConfig intervention_config_;
-        HumanSafetyEvaluator intervention_evaluator_;
-        InterventionPolicy intervention_policy_;
-        HumanSafetyResult intervention_metrics_;
-        InterventionDecision intervention_decision_;
-        InterventionState intervention_logged_state_ = InterventionState::FREE;
-        bool intervention_state_logged_ = false;
-        // Simulation-only response model; not a human-fidelity claim.
-        double intervention_boundary_trigger_margin_ = 0.10;
-        double intervention_heading_reaction_delay_ = 0.35;
-        double intervention_heading_compliance_ = 0.6;
-        // Measured against the native planner on the same routes (ours_pilot11):
-        // it steers with |api| mean 2.5 deg, p90 5.0 deg, max 8.4 deg per step and
-        // reaches every goal. A 30 deg cap was 6x the p90 the task needs, and the
-        // response spent 47% of its steps above 15 deg -- enough to bend the
-        // executed path, which then curves the corridor built from it and leaves
-        // only curving samples feasible. 10 deg keeps headroom above the native
-        // maximum for genuine avoidance without lurching.
-        double intervention_max_heading_correction_ = 0.174532925199;
-        // Largest change in the applied correction between two steps, so a cue
-        // ramps in instead of stepping to full deflection. Native step-to-step
-        // change is p90 5.7 deg, max 10.4 deg. Release is deliberately NOT rate
-        // limited: with no active cue the design requires api to be exactly 0.
-        double intervention_heading_rate_limit_ = 0.1;
-        double intervention_stop_reaction_delay_ = 0.35;
-        // The intervention layer is clocked by the *walk*, not by the wall clock.
-        // Every constant in it (reaction delay, cue hold, danger window) describes
-        // a human timescale, but the simulator applies one whole LFPC step per
-        // 0.1 s FSM tick while a step physically lasts lfpc/t_sup = 0.35 s, so
-        // wall-clock seconds buy 3.5x more walking in simulation than on hardware.
-        // Advancing this clock by t_sup per applied step makes the two agree.
-        double intervention_walk_time_ = 0.0;
-        // Negative means "no cue pending"; walk time itself is always >= 0, so a
-        // zero-valued sentinel would be ambiguous on the very first step.
-        double intervention_heading_pending_since_ = -1.0;
-        double intervention_stop_pending_since_ = -1.0;
-        // Heading correction actually handed to the plant on the last step, for
-        // the intervention metrics stream.
-        double intervention_applied_correction_ = 0.0;
-        bool intervention_heading_response_active_ = false;
-        bool intervention_stop_response_active_ = false;
         bool mpc_stop_state_active_ = false;
         ros::Time mpc_stop_enter_time_;
         ros::Time mpc_stop_clear_since_;
@@ -204,27 +158,6 @@ namespace cane_planner
         enum InteractionScene { SCENE_NONE = 0, SCENE_CROSSING = 1 };
         enum InteractionMode { MODE_CONTINUE = 0, MODE_YIELD = 2 };
         std::vector<Eigen::Vector3d> last_corridor_feasible_mppi_path_;
-        // Always seed the walking corridor from the global route. Pins the
-        // corridor hardest, but a route-shaped centreline through a sharp corner
-        // is one no rollout can hold: measured on ours_pilot13, STOP_ADVICE took
-        // 32-39% of the steps, and the collapse frame had valid_ratio 1.00 with
-        // nothing rejected, i.e. the planner was healthy and only the corridor
-        // geometry disagreed. Kept for reproducing that run.
-        bool corridor_spine_prefer_global_ = false;
-        // The rule used instead: keep the previous prediction as the centreline
-        // only while it still describes the route. The prediction moves with the
-        // robot, so a corridor around a prediction that has wandered never
-        // shrinks its margin and the intervention layer has nothing to trigger
-        // on; but the prediction is also the only centreline the robot can
-        // actually hold through a corner.
-        //
-        // Floor is dwc/half_width (0.45): below it the two corridors still
-        // overlap, so there is nothing to choose between. Rounding a 70 deg
-        // route fold at the intervention-limited turn radius leaves the polyline
-        // by roughly 0.4 m, so the limit has to sit above that or every corner
-        // falls back to the route -- the false alarm measured above. The drift
-        // worth catching is the p90 cross-track of about 1.0 m.
-        double corridor_spine_route_deviation_ = 0.6;
         struct InteractionDebug
         {
             bool candidate_valid = false;
@@ -297,12 +230,6 @@ namespace cane_planner
         ros::Publisher mpc_walking_corridor_debug_pub_; // std_msgs/String
         ros::Publisher mpc_convex_corridor_pub_;   // visualization_msgs/MarkerArray
         ros::Publisher mpc_convex_corridor_debug_pub_; // std_msgs/String
-        ros::Publisher intervention_state_pub_;
-        ros::Publisher intervention_metrics_pub_;
-        ros::Publisher intervention_heading_pub_;
-        ros::Publisher intervention_heading_active_pub_;
-        ros::Publisher intervention_selected_traj_pub_;
-        ros::Publisher intervention_heading_marker_pub_;
         ros::Publisher risk_field_pub_;   // sensor_msgs::PointCloud2 (risk > hard_threshold)
         ros::Publisher risk_halo_pub_;    // sensor_msgs::PointCloud2 (halo component only)
         ros::Publisher cmd_vel_pub_;      // geometry_msgs::Twist for Gazebo
@@ -355,24 +282,13 @@ namespace cane_planner
                                              const Eigen::Vector3d& current_pose) const;
         std::vector<Eigen::Vector2d> buildWalkingCorridorReferencePath(
                                              const Eigen::Vector3d& current_pose) const;
-        std::vector<Eigen::Vector3d> pruneMppiPathForward(
-                                             const Eigen::Vector3d& current_pose,
-                                             const std::vector<Eigen::Vector3d>& previous_path,
-                                             const std::vector<Eigen::Vector2d>& reference_path,
-                                             double max_lateral_offset,
-                                             double min_forward_length) const;
         void publishWalkingCorridor(const DynamicWalkingCorridor::Result& result);
-        void logInterventionTransition();
         ConvexCorridor::Result updateAndPublishConvexCorridor(
                                              const Eigen::Vector3d& current_pose,
                                              const std::vector<Eigen::Vector3d>& obs_pos,
                                              const std::vector<Eigen::Vector3d>& obs_vel,
                                              const std::vector<Eigen::Vector3d>& obs_size);
         void publishConvexCorridor(const ConvexCorridor::Result& result);
-        void publishIntervention(const TimedWalkingCorridor& corridor);
-        void resetInterventionResponse();
-        double applyInterventionHeadingResponse(double planned_heading, double now);
-        bool applyInterventionStopResponse(bool stop_advice, double now);
         const char* interactionSceneName(InteractionScene scene) const;
         const char* interactionModeName(InteractionMode mode) const;
 

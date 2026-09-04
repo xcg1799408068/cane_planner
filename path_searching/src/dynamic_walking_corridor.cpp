@@ -1853,26 +1853,6 @@ bool DynamicWalkingCorridor::shrinkStaticWidth(Candidate &candidate) const
         if (truncated.size() < 2 || polylineLength(truncated) < cfg_.static_min_feasible_length)
             return false;
 
-        if (candidate.centerline_times.size() == candidate.centerline.size())
-        {
-            const std::vector<Eigen::Vector2d> original_centerline = candidate.centerline;
-            const std::vector<double> original_times = candidate.centerline_times;
-            const double cutoff_time = interpolateTimeAtPolylineDistance(
-                original_centerline, original_times, cutoff);
-            candidate.centerline_times.clear();
-            candidate.centerline_times.reserve(truncated.size());
-            double accumulated = 0.0;
-            candidate.centerline_times.push_back(original_times.front());
-            for (size_t i = 1; i < truncated.size(); ++i)
-            {
-                accumulated += (truncated[i] - truncated[i - 1]).norm();
-                candidate.centerline_times.push_back(
-                    i + 1 == truncated.size()
-                        ? cutoff_time
-                        : interpolateTimeAtPolylineDistance(
-                              original_centerline, original_times, accumulated));
-            }
-        }
         candidate.centerline = truncated;
         candidate.start = candidate.centerline.front();
         candidate.end = candidate.centerline.back();

@@ -4,7 +4,6 @@
 #include <Eigen/Eigen>
 #include <limits>
 #include <random>
-#include <string>
 #include <vector>
 
 #include <ros/ros.h>
@@ -14,8 +13,6 @@
 #include <path_searching/dynamic_walking_corridor.h>
 #include <path_searching/convex_corridor.h>
 #include <plan_env/collision_detection.h>
-
-#include <path_searching/human_safety_evaluator.h>
 
 namespace cane_planner
 {
@@ -95,33 +92,9 @@ public:
         // Early goal arrival: stop rollout and skip terminal cost if within this radius
         double goal_arrival_threshold = 0.3;
 
-        // Score the goal by the closest approach along the rollout instead of by
-        // the terminal point only. The rollout length (horizon_steps *
-        // nominal_al) is longer than the waypoint lookahead distance, so a
-        // terminal-only cost cannot separate "aim at the goal" from "walk
-        // straight past it". Opt-in: it changes the native candidate ranking,
-        // so the intervention experiments keep the terminal-only baseline.
-        bool goal_closest_approach = false;
-
         // FOV limitation: points beyond this distance from robot are treated as traversable
         // Set to <= 0 to disable (full map access)
         double fov_range = 5.0;
-
-        // Deterministic sampling is opt-in so legacy runs keep their behavior.
-        bool deterministic_seed_enable = false;
-        unsigned int deterministic_seed = 0;
-
-        // Small tolerance used only for autonomy evidence; native planner
-        // corridor margins remain unchanged.
-        double intervention_corridor_tolerance = 0.02;
-
-        // Judge intervention safety by the walkable *width* plus the pedestrian
-        // keep-out, ignoring a decomposition cell's entry / exit faces. Those
-        // faces are bookkeeping: a candidate that simply runs further along the
-        // corridor than the cell it was indexed into is not in danger, and static
-        // obstacles are already hard-rejected by the planner itself. Set to false
-        // to score against the full 2-D cell as before.
-        bool intervention_lateral_safety_only = true;
 
         // Warm-start nominal
         double nominal_al = 0.25;
@@ -191,11 +164,6 @@ public:
 
     DebugMetrics getDebugMetrics() const { return last_debug_metrics_; }
 
-    // Final MPPI iteration evidence for the intervention evaluator.
-    const MpcCandidateSnapshot &getCandidateSnapshot() const { return candidate_snapshot_; }
-    void setDeterministicSeed(unsigned int seed) { rng_.seed(seed); }
-    void clearCandidateSnapshot() { candidate_snapshot_.clear(); }
-
     typedef shared_ptr<MpcController> Ptr;
 
 private:
@@ -224,8 +192,6 @@ private:
     // Best path from last plan
     std::vector<Eigen::Vector3d> best_path_;
 
-    MpcCandidateSnapshot candidate_snapshot_;
-
     // Timing
     double last_plan_time_ms_;
     bool last_plan_valid_ = true;
@@ -245,9 +211,7 @@ private:
                       std::vector<std::vector<Eigen::Vector3d>> &paths,
                       std::vector<double> &sample_min_dynamic_clearances,
                       std::vector<double> &sample_min_cpa_times,
-                      std::vector<bool> &sample_corridor_feasible,
-                      std::vector<std::vector<double>> &sample_times,
-                      std::vector<CandidateSafety> &candidate_safety);
+                      std::vector<bool> &sample_corridor_feasible);
     Eigen::VectorXd computeWeights(const Eigen::VectorXd &costs);
     Eigen::MatrixXd weightedUpdate(const std::vector<Eigen::MatrixXd> &samples,
                                     const Eigen::VectorXd &weights,

@@ -63,25 +63,7 @@ void MpcController::setParam(ros::NodeHandle &nh)
     nh.param("mpc/use_best", cfg_.use_best, true);
     nh.param("mpc/fix_step_params", cfg_.fix_step_params, false);
     nh.param("mpc/goal_arrival_threshold", cfg_.goal_arrival_threshold, 0.3);
-    nh.param("mpc/goal_closest_approach_enable", cfg_.goal_closest_approach, false);
     nh.param("mpc/fov_range", cfg_.fov_range, 5.0);
-    nh.param("mpc/intervention/deterministic_seed_enable", cfg_.deterministic_seed_enable, false);
-    int deterministic_seed = 0;
-    nh.param("mpc/intervention/deterministic_seed", deterministic_seed, 0);
-    // Accept the top-level namespace used by experiment launch files too.
-    nh.param("intervention/deterministic_seed_enable", cfg_.deterministic_seed_enable,
-             cfg_.deterministic_seed_enable);
-    nh.param("intervention/deterministic_seed", deterministic_seed,
-             deterministic_seed);
-    cfg_.deterministic_seed = static_cast<unsigned int>(std::max(0, deterministic_seed));
-    nh.param("mpc/intervention/corridor_tolerance", cfg_.intervention_corridor_tolerance, 0.02);
-    nh.param("intervention/corridor_tolerance", cfg_.intervention_corridor_tolerance,
-             cfg_.intervention_corridor_tolerance);
-    nh.param("intervention/lateral_safety_only", cfg_.intervention_lateral_safety_only,
-             cfg_.intervention_lateral_safety_only);
-
-    if (cfg_.deterministic_seed_enable)
-        rng_.seed(cfg_.deterministic_seed);
 
     nh.param("mpc/nominal_al", cfg_.nominal_al, 0.25);
     nh.param("mpc/nominal_aw", cfg_.nominal_aw, 0.0);
@@ -114,14 +96,12 @@ void MpcController::init()
 {
     warm_start_.resize(0, 0);
     best_path_.clear();
-    candidate_snapshot_.clear();
 }
 
 void MpcController::reset()
 {
     warm_start_.resize(0, 0);
     best_path_.clear();
-    candidate_snapshot_.clear();
 }
 
 void MpcController::resetWarmStart()
@@ -203,7 +183,6 @@ Eigen::Vector3d MpcController::plan(const LFPC::Ptr &lfpc_base,
     int K = cfg_.num_samples;
     last_debug_metrics_ = DebugMetrics();
     last_debug_metrics_.num_samples = K;
-    candidate_snapshot_.clear();
 
     ensurePool(K);
 
@@ -231,45 +210,8 @@ Eigen::Vector3d MpcController::plan(const LFPC::Ptr &lfpc_base,
         std::vector<double> sample_min_dynamic_clearances;
         std::vector<double> sample_min_cpa_times;
         std::vector<bool> sample_corridor_feasible;
-        std::vector<CandidateSafety> candidate_safety;
-        std::vector<std::vector<double>> sample_times;
         rolloutBatch(lfpc_base, samples, goal_pos, obs_pos, obs_vel, obs_size, costs, paths,
-                     sample_min_dynamic_clearances, sample_min_cpa_times,
-                     sample_corridor_feasible, sample_times, candidate_safety);
-
-        // Keep only the evidence corresponding to the distribution used by the
-        // final MPPI iteration. Earlier iterations are optimizer internals.
-        if (iter == cfg_.mpc_iters - 1)
-        {
-            candidate_snapshot_.clear();
-            candidate_snapshot_.native_costs.resize(static_cast<size_t>(K));
-            candidate_snapshot_.native_valid.resize(static_cast<size_t>(K));
-            candidate_snapshot_.candidates = candidate_safety;
-            candidate_snapshot_.com_paths.resize(static_cast<size_t>(K));
-            candidate_snapshot_.com_times.resize(static_cast<size_t>(K));
-            candidate_snapshot_.api_sequences.resize(static_cast<size_t>(K));
-    candidate_snapshot_.rollout_horizon = static_cast<double>(N) * lfpc_base->getTimeUpdate();
-            for (int kk = 0; kk < K; ++kk)
-            {
-                const size_t index = static_cast<size_t>(kk);
-                candidate_snapshot_.native_costs[index] = costs(kk);
-                candidate_snapshot_.native_valid[index] = std::isfinite(costs(kk));
-                candidate_snapshot_.com_paths[index].reserve(paths[index].size());
-                candidate_snapshot_.com_times[index].reserve(paths[index].size());
-                for (size_t pi = 0; pi < paths[index].size(); ++pi)
-                {
-                    candidate_snapshot_.com_paths[index].emplace_back(
-                        paths[index][pi].x(), paths[index][pi].y());
-                    candidate_snapshot_.com_times[index].push_back(
-                        sample_times[index][pi]);
-                }
-                candidate_snapshot_.api_sequences[index].resize(
-                    static_cast<size_t>(samples[index].rows()));
-                for (int n = 0; n < samples[index].rows(); ++n)
-                    candidate_snapshot_.api_sequences[index][static_cast<size_t>(n)] =
-                        samples[index](n, 2);
-            }
-        }
+                     sample_min_dynamic_clearances, sample_min_cpa_times, sample_corridor_feasible);
 
         // 3. Find best trajectory
         int valid_count = 0;
@@ -479,9 +421,7 @@ void MpcController::rolloutBatch(
     std::vector<std::vector<Eigen::Vector3d>> &paths,
     std::vector<double> &sample_min_dynamic_clearances,
     std::vector<double> &sample_min_cpa_times,
-    std::vector<bool> &sample_corridor_feasible,
-    std::vector<std::vector<double>> &sample_times,
-    std::vector<CandidateSafety> &candidate_safety)
+    std::vector<bool> &sample_corridor_feasible)
 {
     int K = (int)samples.size();
     int N = cfg_.horizon_steps;
@@ -490,26 +430,6 @@ void MpcController::rolloutBatch(
     sample_min_dynamic_clearances.assign(K, std::numeric_limits<double>::infinity());
     sample_min_cpa_times.assign(K, std::numeric_limits<double>::infinity());
     sample_corridor_feasible.assign(K, true);
-    sample_times.assign(static_cast<size_t>(K), std::vector<double>());
-    candidate_safety.assign(static_cast<size_t>(K), CandidateSafety());
-
-    const double step_dt = lfpc_base->getTimeUpdate();
-    const double evaluation_horizon =
-        has_timed_walking_corridor_ && timed_walking_corridor_.tEnd() > 0.0 ?
-            std::min(static_cast<double>(N) * step_dt, timed_walking_corridor_.tEnd()) :
-            0.0;
-    for (int k = 0; k < K; ++k)
-    {
-        CandidateSafety &evidence = candidate_safety[static_cast<size_t>(k)];
-        evidence.sample_index = static_cast<std::size_t>(k);
-        evidence.evaluated = has_timed_walking_corridor_ && evaluation_horizon > 0.0;
-        evidence.first_exit_time = evaluation_horizon;
-        evidence.mean_abs_api = samples[k].rows() > 0 ? samples[k].col(2).cwiseAbs().mean() : 0.0;
-        evidence.minimum_signed_margin = std::numeric_limits<double>::infinity();
-        evidence.minimum_lateral_margin = std::numeric_limits<double>::infinity();
-        evidence.margin_min_time = 0.0;
-        evidence.safe = true;
-    }
 
     int n_obs = (int)obs_pos.size();
     last_debug_metrics_.dynamic_reject_count = 0;
@@ -536,6 +456,7 @@ void MpcController::rolloutBatch(
     double prox_margin = cfg_.prox_margin;
     double dyn_margin = std::max(0.0, cfg_.dynamic_safety_margin);
     double dyn_min_radius = std::max(0.0, cfg_.dynamic_min_radius);
+    double step_dt = lfpc_base->getTimeUpdate();
     double slice_h = collision_ ? collision_->getSliceHeight() : 0.0;
 
     // FOV limitation: robot's actual current position (step 0, not rollout)
@@ -562,7 +483,6 @@ void MpcController::rolloutBatch(
         bool arrived_early = false;
         double rollout_min_dynamic_clearance = std::numeric_limits<double>::infinity();
         double rollout_min_cpa_time = std::numeric_limits<double>::infinity();
-        double rollout_min_goal_dist = std::numeric_limits<double>::infinity();
 
         for (int n = 0; n < N; ++n)
         {
@@ -572,9 +492,6 @@ void MpcController::rolloutBatch(
 
             lfpc->SetCtrlParams(Eigen::Vector3d(al, aw, api));
             lfpc->updateOneStep();
-            if (n == 0)
-                candidate_safety[static_cast<size_t>(k)].first_step_heading =
-                    lfpc->getNextIterState()(2);
 
             std::vector<Eigen::Vector3d> com_path = lfpc->getStepCOMPath();
             Eigen::Vector3d final_com = lfpc->getCOMPos();
@@ -582,12 +499,8 @@ void MpcController::rolloutBatch(
             double fy = final_com(1);
             double path_dt = com_path.empty() ? step_dt : step_dt / (double)com_path.size();
 
-            for (size_t pi = 0; pi < com_path.size(); ++pi)
-            {
-                paths[k].push_back(com_path[pi]);
-                sample_times[static_cast<size_t>(k)].push_back(
-                    n * step_dt + static_cast<double>(pi + 1) * path_dt);
-            }
+            for (const auto &pt : com_path)
+                paths[k].push_back(pt);
 
             // Move + steer cost
             double dx = fx - prev_com_x;
@@ -628,17 +541,6 @@ void MpcController::rolloutBatch(
                 const double point_t = n * step_dt + (double)(pi + 1) * path_dt;
                 const bool key_state_point = (pi + 1 == com_path.size());
 
-                // Closest approach to the goal over the whole rollout. Tracked
-                // before any of the early-outs below so it covers every point
-                // the trajectory actually visits.
-                if (cfg_.goal_closest_approach)
-                {
-                    const double gdx = px - goal_pos(0);
-                    const double gdy = py - goal_pos(1);
-                    rollout_min_goal_dist =
-                        std::min(rollout_min_goal_dist, std::sqrt(gdx * gdx + gdy * gdy));
-                }
-
                 if (cfg_.corridor_enable && has_walking_corridor_)
                 {
                     const Eigen::Vector2d point(px, py);
@@ -658,77 +560,12 @@ void MpcController::rolloutBatch(
                             walking_corridor_, point);
                     }
                     if (!corridor_point_evaluated)
-                    {
-                        // The timed rollout is intentionally truncated at
-                        // evaluation_horizon; points after tEnd are ignored.
                         continue;
-                    }
 
                     corridor_evaluated_for_sample = true;
                     corridor_check_count++;
                     if (outside <= 0.0)
                         corridor_inside_count++;
-
-                    // Intervention evidence uses a small, independent
-                    // tolerance. Native MPPI rejection still uses its own
-                    // planner margin below and is intentionally unchanged.
-                    CandidateSafety &evidence = candidate_safety[static_cast<size_t>(k)];
-                    if (evidence.evaluated && point_t <= evaluation_horizon + 1e-9)
-                    {
-                        const double dyn_violation = has_timed_walking_corridor_
-                            ? timed_walking_corridor_.dynamicObstacleViolationAtTime(point_t, point)
-                            : 0.0;
-                        // -outside is zero for every point inside the corridor, so
-                        // it carried no "how close to the edge" information. Both
-                        // corridor margins agree with it outside and grade the
-                        // inside, and both already fold in dynamic penetration --
-                        // do NOT clamp them against -dyn_violation here, that
-                        // caps every positive margin at zero.
-                        double signed_margin;
-                        double lateral_margin = std::numeric_limits<double>::infinity();
-                        if (has_timed_walking_corridor_)
-                        {
-                            signed_margin =
-                                timed_walking_corridor_.signedMarginAtTimeWithNeighbours(
-                                    point_t, point);
-                            lateral_margin =
-                                timed_walking_corridor_.lateralMarginAtTime(point_t, point);
-                            evidence.minimum_lateral_margin =
-                                std::min(evidence.minimum_lateral_margin, lateral_margin);
-                        }
-                        else
-                        {
-                            signed_margin = -outside;
-                            if (dyn_violation > 0.0)
-                                signed_margin = std::min(signed_margin, -dyn_violation);
-                        }
-                        if (signed_margin < evidence.minimum_signed_margin)
-                        {
-                            evidence.minimum_signed_margin = signed_margin;
-                            evidence.margin_min_time = point_t;
-                        }
-                        // Width violation, ignoring the cell's entry/exit faces
-                        // when configured that way.
-                        const bool use_lateral =
-                            cfg_.intervention_lateral_safety_only &&
-                            has_timed_walking_corridor_ &&
-                            std::isfinite(lateral_margin);
-                        const double corridor_violation =
-                            use_lateral ? std::max(0.0, -lateral_margin) : outside;
-                        if (corridor_violation > cfg_.intervention_corridor_tolerance ||
-                            dyn_violation > cfg_.intervention_corridor_tolerance)
-                        {
-                            if (evidence.safe)
-                            {
-                                evidence.first_exit_time = point_t;
-                                evidence.rejection_reason =
-                                    dyn_violation > corridor_violation
-                                        ? "DYNAMIC_CORRIDOR_EXCLUSION"
-                                        : "TIMED_CORRIDOR_EXIT";
-                            }
-                            evidence.safe = false;
-                        }
-                    }
                     if (key_state_point &&
                         !corridorDeviationFeasible(outside, cfg_.corridor_hard_margin))
                         sample_corridor_feasible_for_sample = false;
@@ -914,15 +751,6 @@ void MpcController::rolloutBatch(
                 last_debug_metrics_.corridor_reject_count++;
             if (convex_corridor_violated)
                 last_debug_metrics_.convex_corridor_reject_count++;
-        }
-        else if (cfg_.goal_closest_approach)
-        {
-            // Closest approach, so turning towards the goal always pays off.
-            // A terminal-only cost is blind here: the rollout overshoots the
-            // lookahead target by design, and every candidate ends up roughly
-            // the same distance past it whether it aims at the goal or not.
-            if (std::isfinite(rollout_min_goal_dist))
-                total_cost += (w_goal / N) * rollout_min_goal_dist;
         }
         else if (!arrived_early)
         {

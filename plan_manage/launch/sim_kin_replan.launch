@@ -30,61 +30,6 @@
     <arg name="mpc_interaction_stop_release_clear_time" default="0.15"/>
     <arg name="mpc_interaction_post_yield_grace_time" default="0.6"/>
     <arg name="mpc_corridor_stop_valid_ratio_threshold" default="0.2"/>
-    <!-- Corridor centreline source: the previous MPPI prediction while it stays
-         within dwc_spine_route_deviation of the route, the route once it does
-         not. true pins it to the route unconditionally. -->
-    <arg name="dwc_spine_prefer_global" default="false"/>
-    <arg name="dwc_spine_route_deviation" default="0.6"/>
-    <arg name="intervention_enable" default="false"/>
-    <arg name="intervention_method" default="ours"/>
-    <arg name="intervention_corridor_tolerance" default="0.02"/>
-    <arg name="intervention_lateral_safety_only" default="true"/>
-    <arg name="intervention_p_safe" default="0.8"/>
-    <arg name="intervention_min_candidate_margin" default="0.0"/>
-    <arg name="intervention_eta_warn" default="0.25"/>
-    <arg name="intervention_T_warn" default="0.5"/>
-    <!-- GUIDANCE gate, fitted on ours_pilot7 (see
-         .trellis/tasks/08-31-autonomy-intervention-v1/research/):
-         J_safe* rises monotonically with danger (0.002 at >4 s from a corridor
-         exit, 0.073 below 0.5 s), so 0.06 fires on ~9% of frames about 0.7 s
-         ahead. T_autonomy turned out NOT to be monotone in lead time, so its
-         threshold is deliberately permissive (rollout horizon is 3.5 s) and no
-         longer blocks the gate. -->
-    <arg name="intervention_T_guide" default="4.0"/>
-    <arg name="intervention_J_guide" default="0.06"/>
-    <!-- Intervention time constants are in seconds of WALKING (see
-         algorithm.launch): the layer advances by lfpc/t_sup per applied step, so
-         they mean the same thing in simulation and on hardware. -->
-    <arg name="intervention_guide_hold_time" default="1.0"/>
-    <arg name="intervention_guide_lookahead" default="1.0"/>
-    <arg name="intervention_T_stop" default="0.1"/>
-    <!-- These two were tuned as *frame counts* against the old wall clock (5 and
-         10 FSM ticks at 0.1 s). Now that the layer is clocked by the walk, the
-         same 5 / 10 gait decisions are 1.75 s and 3.5 s. Leaving them at 0.5 /
-         1.0 would silently shrink STOP confirmation to 2 steps: on
-         ours_pilot9.bag that turns 8 of 15 transient danger runs into a STOP,
-         including single-frame glitches. -->
-    <arg name="intervention_stop_entry_window" default="1.75"/>
-    <arg name="intervention_stop_release_window" default="3.5"/>
-    <arg name="intervention_stop_entry_vote_ratio" default="0.8"/>
-    <arg name="intervention_stop_release_vote_ratio" default="0.8"/>
-    <arg name="intervention_heading_reaction_delay" default="0.35"/>
-    <arg name="intervention_heading_compliance" default="0.6"/>
-    <!-- 10 deg. The native planner reaches every goal on these routes with
-         |api| mean 2.5 deg / p90 5.0 deg / max 8.4 deg per step (ours_pilot11);
-         the old 30 deg cap was 6x that p90 and the response spent 47% of its
-         steps above 15 deg, bending the executed path hard enough that the
-         corridor built from it curved too and only curving samples stayed
-         feasible: 8.96 revolutions in ours_pilot10. -->
-    <arg name="intervention_max_heading_correction" default="0.174532925199"/>
-    <!-- Largest change in the applied correction per step, so a cue ramps in over
-         ~2 steps instead of stepping to full deflection. Native step-to-step
-         change is p90 5.7 deg. Release is not rate limited: with no active cue
-         the design requires api to be exactly 0. -->
-    <arg name="intervention_heading_rate_limit" default="0.1"/>
-    <arg name="intervention_require_native_valid" default="true"/>
-    <arg name="intervention_guide_route_weight" default="1.0"/>
-    <arg name="intervention_stop_reaction_delay" default="0.35"/>
     <arg name="convex_corridor_enable" default="false"/>
     <arg name="map_odom_override_topic" default="/sim_odom"/>
     <arg name="convex_corridor_segment_length" default="0.8"/>
@@ -160,32 +105,6 @@
         <arg name="mpc_interaction_stop_release_clear_time" value="$(arg mpc_interaction_stop_release_clear_time)"/>
         <arg name="mpc_interaction_post_yield_grace_time" value="$(arg mpc_interaction_post_yield_grace_time)"/>
         <arg name="mpc_corridor_stop_valid_ratio_threshold" value="$(arg mpc_corridor_stop_valid_ratio_threshold)"/>
-        <arg name="dwc_spine_prefer_global" value="$(arg dwc_spine_prefer_global)"/>
-        <arg name="dwc_spine_route_deviation" value="$(arg dwc_spine_route_deviation)"/>
-        <arg name="intervention_enable" value="$(arg intervention_enable)"/>
-        <arg name="intervention_method" value="$(arg intervention_method)"/>
-        <arg name="intervention_corridor_tolerance" value="$(arg intervention_corridor_tolerance)"/>
-        <arg name="intervention_lateral_safety_only" value="$(arg intervention_lateral_safety_only)"/>
-        <arg name="intervention_p_safe" value="$(arg intervention_p_safe)"/>
-        <arg name="intervention_min_candidate_margin" value="$(arg intervention_min_candidate_margin)"/>
-        <arg name="intervention_eta_warn" value="$(arg intervention_eta_warn)"/>
-        <arg name="intervention_T_warn" value="$(arg intervention_T_warn)"/>
-        <arg name="intervention_T_guide" value="$(arg intervention_T_guide)"/>
-        <arg name="intervention_J_guide" value="$(arg intervention_J_guide)"/>
-        <arg name="intervention_guide_hold_time" value="$(arg intervention_guide_hold_time)"/>
-        <arg name="intervention_guide_lookahead" value="$(arg intervention_guide_lookahead)"/>
-        <arg name="intervention_T_stop" value="$(arg intervention_T_stop)"/>
-        <arg name="intervention_stop_entry_window" value="$(arg intervention_stop_entry_window)"/>
-        <arg name="intervention_stop_release_window" value="$(arg intervention_stop_release_window)"/>
-        <arg name="intervention_stop_entry_vote_ratio" value="$(arg intervention_stop_entry_vote_ratio)"/>
-        <arg name="intervention_stop_release_vote_ratio" value="$(arg intervention_stop_release_vote_ratio)"/>
-        <arg name="intervention_heading_reaction_delay" value="$(arg intervention_heading_reaction_delay)"/>
-        <arg name="intervention_heading_compliance" value="$(arg intervention_heading_compliance)"/>
-        <arg name="intervention_max_heading_correction" value="$(arg intervention_max_heading_correction)"/>
-        <arg name="intervention_heading_rate_limit" value="$(arg intervention_heading_rate_limit)"/>
-        <arg name="intervention_require_native_valid" value="$(arg intervention_require_native_valid)"/>
-        <arg name="intervention_guide_route_weight" value="$(arg intervention_guide_route_weight)"/>
-        <arg name="intervention_stop_reaction_delay" value="$(arg intervention_stop_reaction_delay)"/>
         <arg name="convex_corridor_enable" value="$(arg convex_corridor_enable)"/>
         <arg name="map_odom_override_topic" value="$(arg map_odom_override_topic)"/>
         <arg name="convex_corridor_segment_length" value="$(arg convex_corridor_segment_length)"/>
