@@ -19,6 +19,7 @@ namespace cane_planner
   class CollisionDetection
   {
   private:
+    friend class StaticMpcTestAccess;
     /* data */
     ros::NodeHandle node_;
     double resolution_inv_;
@@ -116,6 +117,18 @@ namespace cane_planner
     bool isTraversable(Eigen::Vector3d state, double times);
     double getCollisionDistance(Eigen::Vector2d pos);
     bool hasStaticGlobalMap() const { return static_global_esdf_ready_ || static_global_map_ready_; }
+    // Matches the backend selected by isStaticTraversable, with local SDF fallback.
+    double getStaticQueryResolution() const
+    {
+      if (static_global_esdf_ready_) return global_esdf_resolution_;
+      if (static_global_map_ready_) return static_map_resolution_;
+      return sdf_map_->getResolution();
+    }
+    // Conservative aligned 2D cell snapshot for static corridor inflation.
+    // Preserves selected backend semantics; not an observed-free certificate.
+    bool getStaticCorridorGrid(const Eigen::Vector2d& lower, const Eigen::Vector2d& upper,
+        Eigen::Vector2d& origin, double& resolution, Eigen::Vector2i& size,
+        std::vector<uint8_t>& blocked, std::string& reason);
     bool isStaticTraversable(double x, double y) const;
     double getStaticCollisionDistance(Eigen::Vector2d pos);
     int countStaticTraversableAround(const Eigen::Vector2d &pos, double radius) const;

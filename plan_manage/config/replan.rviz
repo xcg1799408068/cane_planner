@@ -603,6 +603,22 @@ Visualization Manager:
         {}
       Queue Size: 100
       Value: true
+    - Class: rviz/MarkerArray
+      Enabled: true
+      Marker Topic: /mpc/convex_corridor
+      Name: Static_Corridor
+      Namespaces:
+        {}
+      Queue Size: 1
+      Value: true
+    - Class: rviz/MarkerArray
+      Enabled: true
+      Marker Topic: /mpc/sample_trajectories
+      Name: MPC_SampleTrajectories
+      Namespaces:
+        mpc_sample_trajectories: true
+      Queue Size: 1
+      Value: true
     - Class: rviz/Marker
       Enabled: true
       Marker Topic: /mpc/best_traj

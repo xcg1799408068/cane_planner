@@ -1,11 +1,14 @@
 <launch>
     <arg name="planner" default="3"/>
+    <!-- Planner 3: soft preference only; 1x penalty over 0.8 m additional clearance. -->
+    <arg name="astar_w_clearance" default="$(eval 1.0 if arg('planner') == 3 else 0.0)"/>
+    <arg name="astar_clearance_sigma" default="0.8"/>
     <arg name="start_teleop" default="true"/>
     <arg name="rviz" default="true"/>
     <arg name="gui" default="false"/>
     <arg name="gazebo_paused" default="false"/>
-    <arg name="use_world_pedestrians" default="true"/>
-    <arg name="use_gazebo_pedestrian_truth" default="true"/>
+    <arg name="use_world_pedestrians" default="$(eval arg('planner') != 3)"/>
+    <arg name="use_gazebo_pedestrian_truth" default="$(eval arg('planner') != 3)"/>
     <arg name="use_pedestrians" default="false"/>
     <arg name="dynamic_world_file" default="$(find plan_manage)/worlds/corridor_dynamic_9.world"/>
     <!-- Human walking gait for the guide-cane simulation. The cane steers; the user supplies forward motion. -->
@@ -36,9 +39,8 @@
     <arg name="global_esdf_query_max_height" default="1.8"/>
     <arg name="global_esdf_query_step" default="0.3"/>
     <arg name="global_esdf_inflation" default="0.20"/>
-    <arg name="global_esdf_safe_distance" default="0.15"/>
+    <arg name="global_esdf_safe_distance" default="0.0"/>
     <arg name="global_esdf_min_points_per_cell" default="1"/>
-    <arg name="static_endpoint_clear_radius" default="0.25"/>
     <arg name="publish_static_map_debug" default="true"/>
     <!-- Baseline toggles for ablation experiments. Defaults keep the full method. -->
     <arg name="mpc_enable_cpa" default="true"/>
@@ -56,6 +58,8 @@
 
     <include file="$(find plan_manage)/launch/gazebo_mpc.launch">
         <arg name="planner" value="$(arg planner)"/>
+        <arg name="astar_w_clearance" value="$(arg astar_w_clearance)"/>
+        <arg name="astar_clearance_sigma" value="$(arg astar_clearance_sigma)"/>
         <arg name="use_planner" value="true"/>
         <arg name="start_teleop" value="$(arg start_teleop)"/>
         <arg name="rviz" value="$(arg rviz)"/>
@@ -93,7 +97,6 @@
         <arg name="global_esdf_inflation" value="$(arg global_esdf_inflation)"/>
         <arg name="global_esdf_safe_distance" value="$(arg global_esdf_safe_distance)"/>
         <arg name="global_esdf_min_points_per_cell" value="$(arg global_esdf_min_points_per_cell)"/>
-        <arg name="static_endpoint_clear_radius" value="$(arg static_endpoint_clear_radius)"/>
         <arg name="publish_static_map_debug" value="$(arg publish_static_map_debug)"/>
         <arg name="mpc_enable_cpa" value="$(arg mpc_enable_cpa)"/>
         <arg name="mpc_enable_stop_enforce" value="$(arg mpc_enable_stop_enforce)"/>

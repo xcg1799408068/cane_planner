@@ -4,7 +4,6 @@
 #include <std_msgs/Float64.h>
 #include <std_msgs/Float64MultiArray.h>
 #include <std_msgs/String.h>
-#include <path_searching/trajectory_feasibility.h>
 
 #include <algorithm>
 #include <cmath>
@@ -19,67 +18,6 @@ namespace cane_planner
 {
 namespace
 {
-
-std::vector<Eigen::Vector2d> clipPolygonByHalfspace(
-    const std::vector<Eigen::Vector2d>& polygon,
-    const ConvexCorridor::Halfspace& h)
-{
-    std::vector<Eigen::Vector2d> clipped;
-    if (polygon.empty())
-        return clipped;
-
-    auto signedViolation = [&](const Eigen::Vector2d& p) {
-        return h.normal.dot(p) - h.offset;
-    };
-
-    for (size_t i = 0; i < polygon.size(); ++i)
-    {
-        const Eigen::Vector2d a = polygon[i];
-        const Eigen::Vector2d b = polygon[(i + 1) % polygon.size()];
-        const double va = signedViolation(a);
-        const double vb = signedViolation(b);
-        const bool a_in = va <= 1e-6;
-        const bool b_in = vb <= 1e-6;
-
-        if (a_in && b_in)
-        {
-            clipped.push_back(b);
-        }
-        else if (a_in && !b_in)
-        {
-            const double denom = va - vb;
-            if (std::abs(denom) > 1e-9)
-                clipped.push_back(a + (va / denom) * (b - a));
-        }
-        else if (!a_in && b_in)
-        {
-            const double denom = va - vb;
-            if (std::abs(denom) > 1e-9)
-                clipped.push_back(a + (va / denom) * (b - a));
-            clipped.push_back(b);
-        }
-    }
-    return clipped;
-}
-
-std::vector<Eigen::Vector2d> segmentPolygon(const ConvexCorridor::Segment& segment)
-{
-    const double extent = std::max(2.0, segment.s1 - segment.s0 + 2.0);
-    std::vector<Eigen::Vector2d> polygon = {
-        segment.center + Eigen::Vector2d(-extent, -extent),
-        segment.center + Eigen::Vector2d( extent, -extent),
-        segment.center + Eigen::Vector2d( extent,  extent),
-        segment.center + Eigen::Vector2d(-extent,  extent),
-    };
-
-    for (const auto& h : segment.halfspaces)
-    {
-        polygon = clipPolygonByHalfspace(polygon, h);
-        if (polygon.empty())
-            break;
-    }
-    return polygon;
-}
 
 double cross2d(const Eigen::Vector2d& a, const Eigen::Vector2d& b)
 {
@@ -198,40 +136,39 @@ std::vector<Eigen::Vector2d> buildHumanCaneFootprintWorld(
         nh.param("planner_node/simulation", simulation_, false);
         nh.param("planner_node/gazebo_sim", gazebo_sim_, false);
         nh.param("manager/sim_speed", sim_speed_, 0.5);  // 仿真行走速度 m/s
-        nh.param("manager/global_wp_spacing", global_wp_spacing_, 1.0);
+        if (planner_ != 3)
+        {
+            nh.param("manager/global_wp_spacing", global_wp_spacing_, 1.0);
+            nh.param("manager/global_wp_smoothing_enable", global_wp_smoothing_enable_, false);
+            nh.param("manager/global_wp_smoothing_radius", global_wp_smoothing_radius_, 0.45);
+            nh.param("manager/global_wp_smoothing_min_turn_angle",
+                     global_wp_smoothing_min_turn_angle_, 0.55);
+            nh.param("manager/global_wp_smoothing_samples", global_wp_smoothing_samples_, 4);
+        }
         nh.param("manager/global_wp_arrival_radius", global_wp_arrival_radius_, 0.1);
-        nh.param("manager/global_wp_smoothing_enable", global_wp_smoothing_enable_, true);
-        nh.param("manager/global_wp_smoothing_radius", global_wp_smoothing_radius_, 0.45);
-        nh.param("manager/global_wp_smoothing_min_turn_angle",
-                 global_wp_smoothing_min_turn_angle_, 0.55);
-        nh.param("manager/global_wp_smoothing_samples", global_wp_smoothing_samples_, 4);
         nh.param("manager/lookahead_dist", lookahead_dist_, 1.0);
         nh.param("mpc/fov_range", mpc_fov_range_, 5.0);
         nh.param("mpc/debug_enable", mpc_debug_enable_, true);
-        nh.param("mpc/stop_advice_enable", mpc_stop_advice_enable_, true);
-        nh.param("mpc/stop_advice_enforce", mpc_stop_advice_enforce_, true);
-        nh.param("mpc/stop_hold_time", mpc_stop_hold_time_, 0.8);
-        nh.param("mpc/stop_release_clear_time", mpc_stop_release_clear_time_, 0.5);
-        nh.param("mpc/corridor_stop_enable", mpc_corridor_stop_enable_, true);
-        nh.param("mpc/corridor_stop_valid_ratio_threshold",
-                 mpc_corridor_stop_valid_ratio_threshold_, 0.2);
-        nh.param("mpc/interaction_enable", mpc_interaction_enable_, false);
-        nh.param("mpc/interaction_enable_yield", mpc_interaction_enable_yield_, false);
-        nh.param("mpc/interaction_st_horizon", mpc_interaction_st_horizon_, 4.0);
-        nh.param("mpc/interaction_yield_trigger_time", mpc_interaction_yield_trigger_time_, 2.5);
-        nh.param("mpc/interaction_robot_radius", mpc_interaction_robot_radius_, 0.25);
-        nh.param("mpc/interaction_yield_safety_margin", mpc_interaction_yield_safety_margin_, 0.20);
-        nh.param("mpc/interaction_front_min", mpc_interaction_front_min_, 0.3);
-        nh.param("mpc/interaction_front_max", mpc_interaction_front_max_, 4.0);
-        nh.param("mpc/interaction_corridor_width", mpc_interaction_corridor_width_, 0.7);
-        nh.param("mpc/interaction_cross_speed", mpc_interaction_cross_speed_, 0.15);
-        nh.param("mpc/interaction_time_gap", mpc_interaction_time_gap_, 0.8);
-        nh.param("mpc/interaction_min_robot_speed", mpc_interaction_min_robot_speed_, 0.15);
-        nh.param("mpc/interaction_cpa_horizon", mpc_interaction_cpa_horizon_, 3.0);
-        nh.param("mpc/interaction_cpa_dist", mpc_interaction_cpa_dist_, 0.8);
-        nh.param("mpc/interaction_use_cpa_check", mpc_interaction_use_cpa_check_, true);
-        nh.param("mpc/interaction_stop_release_clear_time", mpc_interaction_stop_release_clear_time_, 0.15);
-        nh.param("mpc/interaction_post_yield_grace_time", mpc_interaction_post_yield_grace_time_, 0.6);
+        if (planner_ == 4)
+        {
+            nh.param("mpc/stop_advice_enable", mpc_stop_advice_enable_, true);
+            nh.param("mpc/stop_advice_enforce", mpc_stop_advice_enforce_, true);
+            nh.param("mpc/interaction_enable", mpc_interaction_enable_, false);
+            nh.param("mpc/interaction_enable_yield", mpc_interaction_enable_yield_, false);
+            nh.param("mpc/interaction_st_horizon", mpc_interaction_st_horizon_, 4.0);
+            nh.param("mpc/interaction_yield_trigger_time", mpc_interaction_yield_trigger_time_, 2.5);
+            nh.param("mpc/interaction_robot_radius", mpc_interaction_robot_radius_, 0.25);
+            nh.param("mpc/interaction_yield_safety_margin", mpc_interaction_yield_safety_margin_, 0.20);
+            nh.param("mpc/interaction_front_min", mpc_interaction_front_min_, 0.3);
+            nh.param("mpc/interaction_front_max", mpc_interaction_front_max_, 4.0);
+            nh.param("mpc/interaction_corridor_width", mpc_interaction_corridor_width_, 0.7);
+            nh.param("mpc/interaction_cross_speed", mpc_interaction_cross_speed_, 0.15);
+            nh.param("mpc/interaction_time_gap", mpc_interaction_time_gap_, 0.8);
+            nh.param("mpc/interaction_min_robot_speed", mpc_interaction_min_robot_speed_, 0.15);
+            nh.param("mpc/interaction_cpa_horizon", mpc_interaction_cpa_horizon_, 3.0);
+            nh.param("mpc/interaction_cpa_dist", mpc_interaction_cpa_dist_, 0.8);
+            nh.param("mpc/interaction_use_cpa_check", mpc_interaction_use_cpa_check_, true);
+        }
         nh.param("mpc/nominal_al", mpc_nominal_al_, 0.40);
         nh.param("lfpc/t_sup", lfpc_t_sup_, 0.35);
         nh.param("lfpc/delta_t", lfpc_delta_t_, 0.07);
@@ -281,7 +218,6 @@ std::vector<Eigen::Vector2d> buildHumanCaneFootprintWorld(
             ROS_WARN(" MPC controller start");
             mpc_controller_.reset(new MpcController);
             mpc_controller_->setParam(nh);
-            mpc_controller_->setModel(lfpc_model_);
             mpc_controller_->setCollision(collision_);
             mpc_controller_->init();
         }
@@ -293,30 +229,32 @@ std::vector<Eigen::Vector2d> buildHumanCaneFootprintWorld(
             kinematic_mppi_controller_->setCollision(collision_);
             kinematic_mppi_controller_->init();
         }
-        if (planner_ == 3 || planner_ == 4)
+        if (planner_ == 4)
         {
             ROS_WARN(" Dynamic walking corridor start");
             dynamic_walking_corridor_.reset(new DynamicWalkingCorridor);
             dynamic_walking_corridor_->setParam(nh);
             dynamic_walking_corridor_->setCollision(collision_);
         }
-        bool convex_corridor_enable = false;
-        nh.param("convex_corridor/enable", convex_corridor_enable, false);
-        if (convex_corridor_enable)
+        if (planner_ == 3)
         {
-            ROS_WARN(" Convex corridor diagnostics start");
+            ROS_WARN(" Mandatory static A* corridor start");
             convex_corridor_.reset(new ConvexCorridor);
             ConvexCorridor::Config cfg;
-            nh.param("convex_corridor/segment_length", cfg.segment_length, 0.8);
-            nh.param("convex_corridor/half_width", cfg.half_width, 0.45);
-            nh.param("convex_corridor/min_half_width", cfg.min_half_width, 0.25);
-            nh.param("convex_corridor/static_sample_ds", cfg.static_sample_ds, 0.2);
-            nh.param("convex_corridor/static_sample_dl", cfg.static_sample_dl, 0.1);
-            nh.param("convex_corridor/pedestrian_radius", cfg.pedestrian_radius, 0.35);
-            nh.param("convex_corridor/pedestrian_time_margin", cfg.pedestrian_time_margin, 0.4);
-            nh.param("convex_corridor/start_grace_length", cfg.start_grace_length, 0.4);
-            cfg.enable = true;
+            nh.param("convex_corridor/local_radius", cfg.local_radius, 3.0);
+            nh.param("convex_corridor/clearance", cfg.clearance, 0.002);
+            nh.param("convex_corridor/max_segment_length", cfg.max_segment_length, 1.0);
+            nh.param("convex_corridor/max_seconds", cfg.max_seconds, 0.5);
+            nh.param("convex_corridor/iterations", cfg.iterations, 4);
+            nh.param("convex_corridor/optimizer_iterations", cfg.optimizer_iterations, 150);
+            nh.param("convex_corridor/max_regions", cfg.max_regions, 100);
             convex_corridor_->setConfig(cfg);
+            astar_finder_->setCorridorEdgeClearance(cfg.clearance);
+            corridor_failure_directory_ = defaultCorridorFailureDirectory();
+            if (corridor_failure_directory_.empty())
+                ROS_ERROR("[StaticCorridor] failure snapshot directory unavailable: set ROS_HOME or HOME");
+            else
+                ROS_INFO("[StaticCorridor] first failure snapshot per goal: %s", corridor_failure_directory_.c_str());
         }
         //init bspline
         ROS_WARN(" Bspline start");
@@ -829,16 +767,6 @@ std::vector<Eigen::Vector2d> buildHumanCaneFootprintWorld(
         std::vector<Eigen::Vector3d> previous_mppi_path;
         previous_mppi_path.push_back(current_pose);
 
-        if (!last_corridor_feasible_mppi_path_.empty())
-        {
-            for (const auto& point : last_corridor_feasible_mppi_path_)
-            {
-                if ((point.head(2) - current_pose.head(2)).norm() < 0.05)
-                    continue;
-                previous_mppi_path.push_back(point);
-            }
-        }
-
         const auto reference_path = buildWalkingCorridorReferencePath(current_pose);
         const auto cfg = dynamic_walking_corridor_->getConfig();
         return TimedTrajectoryBuilder::buildNominal(
@@ -861,8 +789,7 @@ std::vector<Eigen::Vector2d> buildHumanCaneFootprintWorld(
         Eigen::Vector2d current = current_pose.head(2);
         path.push_back(current);
 
-        const std::vector<Eigen::Vector2d>& ref =
-            global_path_dense_.size() >= 2 ? global_path_dense_ : global_waypoints_;
+        const std::vector<Eigen::Vector2d>& ref = global_waypoints_;
         if (ref.size() >= 2)
         {
             double best_dist = std::numeric_limits<double>::infinity();
@@ -1237,142 +1164,115 @@ std::vector<Eigen::Vector2d> buildHumanCaneFootprintWorld(
     }
 
     ConvexCorridor::Result PlannerManager::updateAndPublishConvexCorridor(
-        const Eigen::Vector3d& current_pose,
-        const std::vector<Eigen::Vector3d>& obs_pos,
-        const std::vector<Eigen::Vector3d>& obs_vel,
-        const std::vector<Eigen::Vector3d>& obs_size)
+        const Eigen::Vector3d& current_pose)
     {
         ConvexCorridor::Result result;
         if (!convex_corridor_)
-            return result;
-
-        const auto reference_path = buildWalkingCorridorReferencePath(current_pose);
-        if (reference_path.size() < 2 || !collision_)
         {
+            result.failure_reason = ConvexCorridor::FailureReason::INVALID_INPUT;
             publishConvexCorridor(result);
             return result;
         }
 
-        auto traversable = [this](double x, double y) {
-            return collision_->isTraversable(x, y);
-        };
-
-        std::vector<ConvexCorridor::PedestrianPrediction> pedestrians;
-        pedestrians.reserve(obs_pos.size());
-        for (size_t i = 0; i < obs_pos.size(); ++i)
+        std::vector<Eigen::Vector2d> reference_path;
+        if (global_wp_idx_ + 1 < global_waypoints_.size())
         {
-            ConvexCorridor::PedestrianPrediction pred;
-            pred.p0 = obs_pos[i].head(2);
-            if (i < obs_vel.size())
-                pred.v = obs_vel[i].head(2);
-            if (i < obs_size.size())
-                pred.radius = 0.5 * std::max(obs_size[i].x(), obs_size[i].y());
-            pedestrians.push_back(pred);
+            const auto &a = global_waypoints_[global_wp_idx_];
+            const Eigen::Vector2d edge = global_waypoints_[global_wp_idx_ + 1] - a;
+            const double fraction = edge.squaredNorm() > 1e-12
+                ? std::max(0.0, std::min(1.0,
+                    (current_pose.head(2) - a).dot(edge) / edge.squaredNorm())) : 0.0;
+            reference_path.push_back(a + fraction * edge);
+            double length = 0.0;
+            const double local_length = std::max(8.0, 2.0 * lookahead_dist_);
+            for (size_t i = global_wp_idx_ + 1;
+                 i < global_waypoints_.size() && length < local_length; ++i)
+            {
+                const double ds = (global_waypoints_[i] - reference_path.back()).norm();
+                if (ds <= 1e-6)
+                    continue;  // duplicate projection, not a skipped route edge
+                length += ds;
+                reference_path.push_back(global_waypoints_[i]);
+            }
+        }
+        if (reference_path.size() < 2 || !collision_)
+        {
+            result.failure_reason = ConvexCorridor::FailureReason::INVALID_INPUT;
+            publishConvexCorridor(result);
+            return result;
         }
 
-        result = convex_corridor_->buildSpatioTemporal(reference_path, traversable, pedestrians);
+        ConvexCorridor::Grid grid;
+        Eigen::Vector2d lo = reference_path.front(), hi = lo;
+        for (const auto& p : reference_path) { lo = lo.cwiseMin(p); hi = hi.cwiseMax(p); }
+        const double radius = convex_corridor_->getConfig().local_radius;
+        Eigen::Vector2i size;
+        std::string reason;
+        if (!collision_->getStaticCorridorGrid(lo-Eigen::Vector2d::Constant(radius),
+                hi+Eigen::Vector2d::Constant(radius), grid.origin, grid.resolution,
+                size, grid.blocked, reason)) {
+            result.failure_reason = ConvexCorridor::FailureReason::UNSUPPORTED_BACKEND;
+            result.failure_position = reference_path.front();
+            result.failure_position_valid = true;
+            ROS_WARN_THROTTLE(1.0, "[StaticCorridor] grid unavailable: %s", reason.c_str());
+        } else {
+            grid.width = size.x(); grid.height = size.y();
+            result = convex_corridor_->buildStatic(reference_path, grid);
+            std::string snapshot_file, snapshot_error;
+            const auto capture = corridor_failure_capture_.saveOnce(corridor_failure_directory_,
+                grid, reference_path, convex_corridor_->getConfig(), result, snapshot_file, snapshot_error);
+            if (capture == CorridorFailureCapture::Status::SAVED)
+                ROS_WARN("[StaticCorridor] saved first failure snapshot: %s", snapshot_file.c_str());
+            else if (capture == CorridorFailureCapture::Status::IO_ERROR)
+                ROS_ERROR("[StaticCorridor] first failure snapshot failed (no retry until new goal): %s", snapshot_error.c_str());
+        }
         publishConvexCorridor(result);
         return result;
     }
 
     void PlannerManager::publishConvexCorridor(const ConvexCorridor::Result& result)
     {
-        if (!mpc_convex_corridor_pub_)
-            return;
-
+        if (!result.feasible)
+            ROS_WARN_THROTTLE(1.0, "[StaticCorridor] reason=%s segment=%d position_valid=%d x=%.3f y=%.3f s=%.3f%s",
+                ConvexCorridor::failureReasonName(result.failure_reason), result.failure_segment_index,
+                static_cast<int>(result.failure_position_valid), result.failure_position.x(), result.failure_position.y(), result.failure_s,
+                ConvexCorridor::diagnosticsText(result).c_str());
         visualization_msgs::MarkerArray markers;
         visualization_msgs::Marker clear;
-        clear.header.frame_id = "world";
-        clear.header.stamp = ros::Time::now();
-        clear.ns = "mpc_convex_corridor";
-        clear.action = visualization_msgs::Marker::DELETEALL;
-        clear.pose.orientation.w = 1.0;
+        clear.header.frame_id = "world"; clear.header.stamp = ros::Time::now();
+        clear.action = visualization_msgs::Marker::DELETEALL; clear.pose.orientation.w = 1.;
         markers.markers.push_back(clear);
-
-        for (size_t i = 0; i < result.segments.size(); ++i)
-        {
-            const auto& seg = result.segments[i];
-            const auto polygon = segmentPolygon(seg);
-
-            visualization_msgs::Marker mk;
-            mk.header = clear.header;
-            mk.ns = "mpc_convex_corridor";
-            mk.id = static_cast<int>(i) + 1;
-            mk.type = visualization_msgs::Marker::LINE_STRIP;
-            mk.action = visualization_msgs::Marker::ADD;
-            mk.pose.orientation.w = 1.0;
-            mk.scale.x = 0.045;
-            mk.color.a = 0.95;
-            if (seg.static_feasible && seg.dynamic_feasible)
-            {
-                mk.color.r = 0.95;
-                mk.color.g = 0.75;
-                mk.color.b = 0.05;
+        for (size_t i=0; i<result.segments.size(); ++i) {
+            const auto& polygon = result.segments[i].vertices;
+            visualization_msgs::Marker outline;
+            outline.header=clear.header; outline.ns="mpc_convex_corridor"; outline.id=i;
+            outline.action=visualization_msgs::Marker::ADD; outline.type=visualization_msgs::Marker::LINE_STRIP;
+            outline.pose.orientation.w=1.; outline.scale.x=.015;
+            outline.color.r=.1; outline.color.g=.65; outline.color.b=.9; outline.color.a=.8;
+            outline.lifetime=ros::Duration(.3);
+            for(const auto& p:polygon) { geometry_msgs::Point q; q.x=p.x();q.y=p.y();q.z=.14;outline.points.push_back(q); }
+            if(!outline.points.empty())outline.points.push_back(outline.points.front());
+            markers.markers.push_back(outline);
+            visualization_msgs::Marker fill=outline;
+            fill.ns="mpc_convex_corridor_fill"; fill.type=visualization_msgs::Marker::TRIANGLE_LIST;
+            fill.scale.x=fill.scale.y=fill.scale.z=1.; fill.color.a=.14; fill.points.clear();
+            for(size_t j=1;j+1<polygon.size();++j) {
+                for(size_t k: {size_t(0),j,j+1}) {geometry_msgs::Point q;q.x=polygon[k].x();q.y=polygon[k].y();q.z=.13;fill.points.push_back(q);}
             }
-            else
-            {
-                mk.color.r = 1.0;
-                mk.color.g = 0.1;
-                mk.color.b = 0.05;
-            }
-            mk.lifetime = ros::Duration(0.3);
-
-            for (const auto& p : polygon)
-            {
-                geometry_msgs::Point pt;
-                pt.x = p.x();
-                pt.y = p.y();
-                pt.z = 0.14;
-                mk.points.push_back(pt);
-            }
-            if (!polygon.empty())
-            {
-                geometry_msgs::Point pt;
-                pt.x = polygon.front().x();
-                pt.y = polygon.front().y();
-                pt.z = 0.14;
-                mk.points.push_back(pt);
-            }
-            markers.markers.push_back(mk);
-
-            visualization_msgs::Marker label;
-            label.header = clear.header;
-            label.ns = "mpc_convex_corridor_labels";
-            label.id = static_cast<int>(i) + 1001;
-            label.type = visualization_msgs::Marker::TEXT_VIEW_FACING;
-            label.action = visualization_msgs::Marker::ADD;
-            label.pose.position.x = seg.center.x();
-            label.pose.position.y = seg.center.y();
-            label.pose.position.z = 0.45;
-            label.pose.orientation.w = 1.0;
-            label.scale.z = 0.18;
-            label.color.a = 0.9;
-            label.color.r = 1.0;
-            label.color.g = seg.static_feasible && seg.dynamic_feasible ? 0.95 : 0.2;
-            label.color.b = 0.2;
-            std::ostringstream ss;
-            ss << "seg=" << i
-               << " hs=" << seg.halfspaces.size()
-               << " st=" << (seg.static_feasible ? 1 : 0)
-               << " dyn=" << (seg.dynamic_feasible ? 1 : 0);
-            label.text = ss.str();
-            label.lifetime = ros::Duration(0.3);
-            markers.markers.push_back(label);
+            markers.markers.push_back(fill);
         }
-
-        mpc_convex_corridor_pub_.publish(markers);
-
-        if (mpc_convex_corridor_debug_pub_)
-        {
-            std_msgs::String debug;
-            std::ostringstream ss;
-            ss << "segments=" << result.segments.size()
-               << " feasible=" << (result.feasible ? 1 : 0)
-               << " min_width=" << std::fixed << std::setprecision(3) << result.min_width
-               << " static_block=" << result.static_block_count
-               << " dynamic_block=" << result.dynamic_block_count;
-            debug.data = ss.str();
-            mpc_convex_corridor_debug_pub_.publish(debug);
+        if(mpc_convex_corridor_pub_)mpc_convex_corridor_pub_.publish(markers);
+        if(mpc_convex_corridor_debug_pub_) {
+            std_msgs::String debug;std::ostringstream ss;
+            ss << "generator=firi_2d cells=" << result.segments.size() << " feasible=" << result.feasible
+               << " reason=" << ConvexCorridor::failureReasonName(result.failure_reason)
+               << " failure_segment=" << result.failure_segment_index << " failure_s=" << result.failure_s
+               << " position_valid=" << result.failure_position_valid
+               << " failure_x=" << result.failure_position.x() << " failure_y=" << result.failure_position.y()
+               << " min_overlap_area=" << result.min_overlap_area << " min_overlap_depth=" << result.min_overlap_depth
+               << " seconds=" << result.elapsed_seconds << " overlap_is_geometric_not_lfpc_guarantee"
+               << ConvexCorridor::diagnosticsText(result);
+            debug.data=ss.str();mpc_convex_corridor_debug_pub_.publish(debug);
         }
     }
 
@@ -1384,6 +1284,7 @@ std::vector<Eigen::Vector2d> buildHumanCaneFootprintWorld(
         double yaw = QuatenionToYaw(msg->pose.orientation);
         if (shouldIgnoreDuplicateGoal(new_goal, yaw, "2D Nav"))
             return;
+        corridor_failure_capture_.resetForGoal();
         end_pt_ = new_goal;
         end_state_(0) = msg->pose.position.x;
         end_state_(1) = msg->pose.position.y;
@@ -1392,7 +1293,6 @@ std::vector<Eigen::Vector2d> buildHumanCaneFootprintWorld(
         // ROS_INFO("end yaw is: %lf", yaw);
         have_target_ = true;
         mpc_reached_goal_ = false;
-        last_corridor_feasible_mppi_path_.clear();
         if (have_odom_ && exec_state_ != INIT && exec_state_ != WAIT_TARGET)
         {
             if (gazebo_sim_)
@@ -1413,6 +1313,7 @@ std::vector<Eigen::Vector2d> buildHumanCaneFootprintWorld(
         double yaw = QuatenionToYaw(msg->poses[0].pose.orientation);
         if (shouldIgnoreDuplicateGoal(new_goal, yaw, "waypoint"))
             return;
+        corridor_failure_capture_.resetForGoal();
         end_pt_ = new_goal;
         end_state_(0) = msg->poses[0].pose.position.x;
         end_state_(1) = msg->poses[0].pose.position.y;
@@ -1421,7 +1322,6 @@ std::vector<Eigen::Vector2d> buildHumanCaneFootprintWorld(
         // ROS_INFO("end yaw is: %lf", yaw);
         have_target_ = true;
         mpc_reached_goal_ = false;
-        last_corridor_feasible_mppi_path_.clear();
         if (have_odom_ && exec_state_ != INIT && exec_state_ != WAIT_TARGET)
         {
             if (gazebo_sim_)
@@ -1646,7 +1546,8 @@ std::vector<Eigen::Vector2d> buildHumanCaneFootprintWorld(
                 obs_pos = dynObsPos_;
                 obs_vel = dynObsVel_;
             }
-            publishRiskField(obs_pos, obs_vel);
+            if (planner_ == 4)
+                publishRiskField(obs_pos, obs_vel);
         }
 
         // FSM loop
@@ -1711,6 +1612,12 @@ std::vector<Eigen::Vector2d> buildHumanCaneFootprintWorld(
                         break;
                     }
                     generateGlobalWaypoints();
+                    if (global_waypoints_.size() < 2)
+                    {
+                        ROS_WARN_THROTTLE(1.0, "[MPC global] A* returned an unusable path; keeping MPC stopped.");
+                        changeFSMExecState(REPLAN_TRAJ);
+                        break;
+                    }
                     mpcSimInit();
                     changeFSMExecState(MPC_STEP);
                 }
@@ -1779,6 +1686,12 @@ std::vector<Eigen::Vector2d> buildHumanCaneFootprintWorld(
                         break;
                     }
                     generateGlobalWaypoints();
+                    if (global_waypoints_.size() < 2)
+                    {
+                        ROS_WARN_THROTTLE(1.0, "[MPC global] A* returned an unusable path; keeping MPC stopped.");
+                        changeFSMExecState(REPLAN_TRAJ);
+                        break;
+                    }
                     mpcSimInit();
                     changeFSMExecState(MPC_STEP);
                 }
@@ -2058,51 +1971,48 @@ std::vector<Eigen::Vector2d> buildHumanCaneFootprintWorld(
 
     void PlannerManager::generateGlobalWaypoints()
     {
-        global_path_dense_.clear();
         global_waypoints_.clear();
         global_wp_idx_ = 0;
 
         auto path = astar_finder_->getPath();  // vector<Eigen::Vector2d>
-        global_path_dense_ = path;
         if (path.size() < 2)
         {
-            global_path_dense_.clear();
-            global_waypoints_.push_back(end_pt_);
-            ROS_WARN("[MPC global] A* path too short, using direct goal as only waypoint");
+            ROS_WARN("[MPC global] A* path too short; refusing a direct-goal fallback");
             return;
         }
 
-        global_waypoints_.push_back(path.front());
-
-        // Downsample: walk the A* path, pick points at ~global_wp_spacing_ intervals
-        double accum = 0.0;
-        for (size_t i = 1; i < path.size(); ++i)
+        if (planner_ == 3)
         {
-            Eigen::Vector2d seg = path[i] - path[i - 1];
-            double seg_len = seg.norm();
-            accum += seg_len;
-            if (accum >= global_wp_spacing_)
-            {
-                global_waypoints_.push_back(path[i]);
-                accum = 0.0;
-            }
-        }
-
-        // Ensure the final point equals end_pt_
-        if (global_waypoints_.empty())
-        {
-            global_waypoints_.push_back(end_pt_);
+            // Planner 3 uses one authoritative A* polyline for projection,
+            // local targets, visualization, and corridor references.
+            global_waypoints_ = path;
         }
         else
         {
+            global_waypoints_.push_back(path.front());
+
+            // Keep the legacy sparse waypoint adapter for planner 4.
+            double accum = 0.0;
+            for (size_t i = 1; i < path.size(); ++i)
+            {
+                Eigen::Vector2d seg = path[i] - path[i - 1];
+                double seg_len = seg.norm();
+                accum += seg_len;
+                if (accum >= global_wp_spacing_)
+                {
+                    global_waypoints_.push_back(path[i]);
+                    accum = 0.0;
+                }
+            }
+
             double dist_last_to_end = (end_pt_ - global_waypoints_.back()).norm();
             if (dist_last_to_end > global_wp_spacing_ * 0.3)
                 global_waypoints_.push_back(end_pt_);
             else
-                global_waypoints_.back() = end_pt_;  // snap last wp to exact goal
+                global_waypoints_.back() = end_pt_;
         }
 
-        if (global_wp_smoothing_enable_ && global_waypoints_.size() >= 3)
+        if (planner_ != 3 && global_wp_smoothing_enable_ && global_waypoints_.size() >= 3)
         {
             const size_t before_count = global_waypoints_.size();
             PathSmoother::Config cfg;
@@ -2121,9 +2031,9 @@ std::vector<Eigen::Vector2d> buildHumanCaneFootprintWorld(
             }
         }
 
-        ROS_INFO("[MPC global] Generated %zu waypoints (spacing=%.1fm) from %zu A* points",
-                 global_waypoints_.size(), global_wp_spacing_,
-                 path.size());
+        ROS_INFO("[MPC global] Generated %zu tracking points from %zu A* points%s",
+                 global_waypoints_.size(), path.size(),
+                 planner_ == 3 ? " (authoritative polyline)" : " (legacy sparse adapter)");
 
         publishWaypointsList();
     }
@@ -2150,10 +2060,11 @@ std::vector<Eigen::Vector2d> buildHumanCaneFootprintWorld(
         if (planner_ == 3)
             lfpc_model_->reset(init_v_state, com_init_pos, LEFT_LEG, 0);
 
-        // 缓存目标：优先使用全局 waypoint，A* 失败则直接面向终点
+        // Cache the first forward A* point; reanchorWaypoint() selects the
+        // actual lookahead target before the first planning step.
         global_wp_idx_ = 0;
-        if (!global_waypoints_.empty())
-            mpc_sim_goal_ << global_waypoints_[0](0), global_waypoints_[0](1), 0.0;
+        if (global_waypoints_.size() >= 2)
+            mpc_sim_goal_ << global_waypoints_[1](0), global_waypoints_[1](1), 0.0;
         else
             mpc_sim_goal_ << end_state_(0), end_state_(1), 0.0;
 
@@ -2161,16 +2072,11 @@ std::vector<Eigen::Vector2d> buildHumanCaneFootprintWorld(
         mpc_com_path_.clear();
         mpc_feet_path_.clear();
         mpc_step_path_.clear();
-        last_corridor_feasible_mppi_path_.clear();
 
         // 初始化计数器
         mpc_step_count_ = 0;
         mpc_stuck_steps_ = 0;
         mpc_reached_goal_ = false;
-        mpc_stop_state_active_ = false;
-        mpc_stop_enter_time_ = ros::Time(0);
-        mpc_stop_clear_since_ = ros::Time(0);
-        mpc_latched_stop_reason_ = "OK";
         mpc_interaction_scene_ = SCENE_NONE;
         mpc_interaction_mode_ = MODE_CONTINUE;
         mpc_interaction_debug_ = InteractionDebug();
@@ -2285,14 +2191,6 @@ std::vector<Eigen::Vector2d> buildHumanCaneFootprintWorld(
             return kinematicMppiSimStep();
 
         // 从缓存获取动态障碍物
-        std::vector<Eigen::Vector3d> obs_pos, obs_vel, obs_size;
-        {
-            std::lock_guard<std::mutex> lock(dynObsMutex_);
-            obs_pos = dynObsPos_;
-            obs_vel = dynObsVel_;
-            obs_size = dynObsSize_;
-        }
-
         Eigen::Vector3d current_com = lfpc_model_->getCOMPos();
         if (gazebo_sim_)
         {
@@ -2359,37 +2257,27 @@ std::vector<Eigen::Vector2d> buildHumanCaneFootprintWorld(
         }
 
         // MPC规划一步
-        updateInteractionDebug(current_com, obs_pos, obs_vel, obs_size);
-        publishInteractionState();
-        auto corridor_result = updateAndPublishWalkingCorridor(current_com, obs_pos, obs_vel, obs_size);
-        auto convex_corridor_result = updateAndPublishConvexCorridor(current_com, obs_pos, obs_vel, obs_size);
-        if (corridor_result.has_feasible)
-            mpc_controller_->setWalkingCorridor(
-                corridor_result.selected, corridor_result.timed_corridor);
-        else
-            mpc_controller_->clearWalkingCorridor();
+        // Planner 3 is a static-navigation baseline, not dynamic avoidance.
+        auto convex_corridor_result = updateAndPublishConvexCorridor(current_com);
         if (convex_corridor_ && convex_corridor_result.feasible)
             mpc_controller_->setConvexCorridor(convex_corridor_result.segments);
         else
             mpc_controller_->clearConvexCorridor();
 
-        Eigen::Vector3d control = mpc_controller_->plan(
-            lfpc_model_, mpc_sim_goal_, obs_pos, obs_vel, obs_size);
-        {
-            const auto dbg = mpc_controller_->getDebugMetrics();
-            const bool selected_path_is_corridor_feasible =
-                dbg.corridor_evaluated
-                    ? dbg.corridor_feasible_trajectory_count > 0
-                    : dbg.valid_trajectory_count > 0;
-            const auto best_path = mpc_controller_->getBestPath();
-            if (selected_path_is_corridor_feasible && !best_path.empty())
-                last_corridor_feasible_mppi_path_ = best_path;
-        }
+        Eigen::Vector3d control = mpc_controller_->plan(lfpc_model_, mpc_sim_goal_);
         if (mpc_debug_enable_)
         {
             const auto dbg = mpc_controller_->getDebugMetrics();
             std_msgs::Float64MultiArray metrics;
-            metrics.data.reserve(19);
+            metrics.data.reserve(23);
+            // Preserve legacy positions 0-18. Dynamic values remain unavailable
+            // (-1); index 11 remains legacy DWC rejects (zero). Index 12 is
+            // convex rejects. Explicit static mode and weighted result append.
+            std_msgs::MultiArrayDimension mode;
+            mode.label = "planner3_static_union_v1;19=static,20=weighted_checked,21=weighted_fallback,22=executed_cost";
+            mode.size = 23;
+            mode.stride = 23;
+            metrics.layout.dim.push_back(mode);
             metrics.data.push_back(dbg.plan_time_ms);
             metrics.data.push_back(dbg.valid_sample_ratio);
             metrics.data.push_back(std::isfinite(dbg.best_total_cost) ? dbg.best_total_cost : -1.0);
@@ -2409,150 +2297,45 @@ std::vector<Eigen::Vector2d> buildHumanCaneFootprintWorld(
             metrics.data.push_back((double)dbg.valid_trajectory_count);
             metrics.data.push_back((double)dbg.corridor_feasible_trajectory_count);
             metrics.data.push_back(dbg.corridor_evaluated ? 1.0 : 0.0);
+            metrics.data.push_back(1.0);  // static spatial-union mode
+            metrics.data.push_back(dbg.weighted_checked ? 1.0 : 0.0);
+            metrics.data.push_back(dbg.weighted_fallback ? 1.0 : 0.0);
+            metrics.data.push_back(std::isfinite(dbg.executed_total_cost) ? dbg.executed_total_cost : -1.0);
             mpc_debug_metrics_pub_.publish(metrics);
         }
 
         const auto dbg = mpc_controller_->getDebugMetrics();
-        const bool interaction_yield_active =
-            mpc_interaction_enable_ &&
-            mpc_interaction_enable_yield_ &&
-            mpc_interaction_mode_ == MODE_YIELD;
-        const bool interaction_yield_stop_active =
-            mpc_interaction_enable_ &&
-            mpc_interaction_enable_yield_ &&
-            mpc_interaction_scene_ == SCENE_CROSSING &&
-            (interaction_yield_active || mpc_interaction_debug_.yield_required);
-        TrajectoryFeasibility trajectory_feasibility;
-        trajectory_feasibility.valid_trajectory_count = dbg.valid_trajectory_count;
-        trajectory_feasibility.corridor_feasible_trajectory_count =
-            dbg.corridor_feasible_trajectory_count;
-        trajectory_feasibility.inside_corridor_ratio = dbg.candidate_inside_corridor_ratio;
-        trajectory_feasibility.corridor_evaluated = dbg.corridor_evaluated;
-        const bool no_feasible_trajectory_stop_active =
-            mpc_corridor_stop_enable_ && trajectory_feasibility.shouldStop();
-
-        bool raw_stop_advice = false;
-        std::string raw_stop_reason = "OK";
-        if (mpc_stop_advice_enable_ && no_feasible_trajectory_stop_active)
-        {
-            raw_stop_advice = true;
-            raw_stop_reason = trajectory_feasibility.stopReason();
-        }
-        else if (mpc_stop_advice_enable_ && interaction_yield_stop_active)
-        {
-            raw_stop_advice = true;
-            raw_stop_reason = "INTERACTION_YIELD_CONFLICT";
-        }
-
-        bool stop_advice = raw_stop_advice;
-        std::string stop_reason = raw_stop_reason;
-        if (raw_stop_reason == "NO_FEASIBLE_TRAJECTORY")
-        {
-            mpc_stop_state_active_ = false;
-            mpc_stop_enter_time_ = ros::Time(0);
-            mpc_stop_clear_since_ = ros::Time(0);
-            mpc_latched_stop_reason_ = "OK";
-        }
-        else if (!mpc_stop_advice_enable_)
-        {
-            mpc_stop_state_active_ = false;
-            mpc_stop_enter_time_ = ros::Time(0);
-            mpc_stop_clear_since_ = ros::Time(0);
-            mpc_latched_stop_reason_ = "OK";
-        }
-        else
-        {
-            const ros::Time now = ros::Time::now();
-            if (raw_stop_advice)
-            {
-                if (!mpc_stop_state_active_)
-                    mpc_stop_enter_time_ = now;
-                mpc_stop_state_active_ = true;
-                mpc_stop_clear_since_ = ros::Time(0);
-                mpc_latched_stop_reason_ = raw_stop_reason;
-            }
-            else if (mpc_stop_state_active_)
-            {
-                const bool hold_elapsed =
-                    mpc_stop_enter_time_.isZero() ||
-                    (now - mpc_stop_enter_time_).toSec() >= mpc_stop_hold_time_;
-                const bool release_clear =
-                    !interaction_yield_stop_active &&
-                    !no_feasible_trajectory_stop_active;
-                if (!release_clear)
-                {
-                    mpc_stop_clear_since_ = ros::Time(0);
-                }
-                else if (mpc_stop_clear_since_.isZero())
-                {
-                    mpc_stop_clear_since_ = now;
-                }
-
-                const double stop_release_clear_time =
-                    mpc_interaction_enable_ ?
-                    std::max(0.0, mpc_interaction_stop_release_clear_time_) :
-                    mpc_stop_release_clear_time_;
-                const bool clear_elapsed =
-                    !mpc_stop_clear_since_.isZero() &&
-                    (now - mpc_stop_clear_since_).toSec() >= stop_release_clear_time;
-
-                if (hold_elapsed && clear_elapsed)
-                {
-                    mpc_stop_state_active_ = false;
-                    mpc_stop_enter_time_ = ros::Time(0);
-                    mpc_stop_clear_since_ = ros::Time(0);
-                    mpc_latched_stop_reason_ = "OK";
-                    stop_advice = false;
-                    stop_reason = "OK";
-                }
-                else
-                {
-                    stop_advice = true;
-                    stop_reason = mpc_latched_stop_reason_.empty() ? "STOP_HOLD" : mpc_latched_stop_reason_;
-                }
-            }
-        }
-        if (mpc_stop_advice_enable_)
-        {
-            std_msgs::Bool msg;
-            msg.data = stop_advice;
-            mpc_stop_advice_pub_.publish(msg);
-
-            std_msgs::String reason_msg;
-            reason_msg.data = stop_reason;
-            mpc_stop_reason_pub_.publish(reason_msg);
-        }
-        if (stop_advice && mpc_stop_advice_enforce_)
+        const bool stop_advice = !mpc_controller_->lastPlanValid();
+        const std::string stop_reason = stop_advice ?
+            (convex_corridor_result.feasible ? "NO_FEASIBLE_TRAJECTORY" : "INVALID_STATIC_CORRIDOR") : "OK";
+        std_msgs::Bool stop_msg;
+        stop_msg.data = stop_advice;
+        mpc_stop_advice_pub_.publish(stop_msg);
+        std_msgs::String reason_msg;
+        reason_msg.data = stop_reason;
+        mpc_stop_reason_pub_.publish(reason_msg);
+        if (stop_advice)
         {
             mpc_controller_->resetWarmStart();
-            ROS_WARN_THROTTLE(0.5, "[MPC] STOP advice enforced reason=%s clearance=%.2f ttc=%.2f valid=%.2f",
-                              stop_reason.c_str(),
-                              std::isfinite(dbg.min_dynamic_clearance) ? dbg.min_dynamic_clearance : -1.0,
-                              std::isfinite(dbg.min_cpa_time) ? dbg.min_cpa_time : -1.0,
-                              dbg.valid_sample_ratio);
+            ROS_WARN_THROTTLE(0.5, "[MPC] Static STOP reason=%s valid=%.2f",
+                              stop_reason.c_str(), dbg.valid_sample_ratio);
+            // Do not leave yesterday's feasible prediction visible on a STOP frame.
+            visualization_msgs::Marker clear;
+            clear.header.frame_id = "world";
+            clear.header.stamp = ros::Time::now();
+            clear.ns = "mpc_best";
+            clear.id = 0;
+            clear.action = visualization_msgs::Marker::DELETE;
+            mpc_best_traj_pub_.publish(clear);
             mpc_stuck_steps_ = 0;
             publishFovRange();
             publishCurrentWaypoint();
             publishWaypointsList();
             mpc_step_count_++;
             if (gazebo_sim_) { geometry_msgs::Twist cmd; cmd_vel_pub_.publish(cmd); }
-            return false;
-        }
-
-        // 无路可走 → 停止本帧
-        if (!mpc_controller_->lastPlanValid())
-        {
-            if (obs_pos.empty())
-                ROS_WARN("[MPC] STOP reason=NO_VALID_PLAN type=static");
-            else
-            {
-                mpc_stuck_steps_ = 0;  // pedestrian-related: waiting is correct
-                ROS_WARN("[MPC] STOP reason=NO_VALID_PLAN type=dynamic obs=%zu", obs_pos.size());
-            }
-            publishFovRange();
-            publishCurrentWaypoint();
-            mpc_step_count_++;
-            if (gazebo_sim_) { geometry_msgs::Twist cmd; cmd_vel_pub_.publish(cmd); }
+            // Keep the map's simulated pose override fresh without advancing LFPC.
+            if (simulation_ && !gazebo_sim_)
+                publishSimOdom(true);
             return false;
         }
 
@@ -2821,7 +2604,7 @@ std::vector<Eigen::Vector2d> buildHumanCaneFootprintWorld(
         return false;
     }
 
-    void PlannerManager::publishSimOdom()
+    void PlannerManager::publishSimOdom(bool stopped)
     {
         Eigen::Vector3d com = (gazebo_sim_ || planner_ == 4) ? odom_pos_ : lfpc_model_->getCOMPos();
         Eigen::Vector3d vel = (planner_ == 4) ? odom_vel_ : lfpc_model_->getNextIterState();
@@ -2834,8 +2617,8 @@ std::vector<Eigen::Vector2d> buildHumanCaneFootprintWorld(
         odom.pose.pose.position.y = com(1);
         odom.pose.pose.position.z = 0.0;
         odom.pose.pose.orientation = tf::createQuaternionMsgFromYaw(theta);
-        odom.twist.twist.linear.x = vel(0);
-        odom.twist.twist.linear.y = vel(1);
+        odom.twist.twist.linear.x = stopped ? 0.0 : vel(0);
+        odom.twist.twist.linear.y = stopped ? 0.0 : vel(1);
         odom.twist.twist.angular.z = 0.0;
 
         sim_odom_pub_.publish(odom);
@@ -2955,8 +2738,7 @@ std::vector<Eigen::Vector2d> buildHumanCaneFootprintWorld(
                                           const std::vector<Eigen::Vector3d>& obs_vel)
     {
         if (obs_pos.empty()) return;
-        if (planner_ == 3 && !mpc_controller_) return;
-        if (planner_ == 4 && !kinematic_mppi_controller_) return;
+        if (planner_ != 4 || !kinematic_mppi_controller_) return;
 
         // Hard threshold = A * ratio (points at or above this risk = INF in MPC)
         double A, ratio;
@@ -2969,9 +2751,7 @@ std::vector<Eigen::Vector2d> buildHumanCaneFootprintWorld(
         cloud_hard.header.stamp = pcl_conversions::toPCL(ros::Time::now());
         cloud_halo.header = cloud_hard.header;
 
-        const auto& rf = (planner_ == 4) ?
-            kinematic_mppi_controller_->getRiskField() :
-            mpc_controller_->getRiskField();
+        const auto& rf = kinematic_mppi_controller_->getRiskField();
         double cx = odom_pos_(0);
         double cy = odom_pos_(1);
         double range = mpc_fov_range_ + 2.0;

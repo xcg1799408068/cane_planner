@@ -65,6 +65,7 @@
   <exec_depend>plan_ctrl</exec_depend>
   <exec_depend>onboard_detector</exec_depend>
   <depend>nav_msgs</depend>
+  <depend>libnlopt-dev</depend>
 
 
   <!-- The export tag contains other, unspecified, tags -->

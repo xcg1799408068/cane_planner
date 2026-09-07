@@ -1,0 +1,51 @@
+GCOPTER FIRI algorithm adaptation
+Upstream commit e0444f6d47b84f972ced91746b05feb36ce1fd4f
+https://github.com/ZJU-FAST-Lab/GCOPTER
+
+
+    MIT License
+
+    Copyright (c) 2021 Zhepei Wang (wangzhepei@live.com)
+
+    Permission is hereby granted, free of charge, to any person obtaining a copy
+    of this software and associated documentation files (the "Software"), to deal
+    in the Software without restriction, including without limitation the rights
+    to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+    copies of the Software, and to permit persons to whom the Software is
+    furnished to do so, subject to the following conditions:
+
+    The above copyright notice and this permission notice shall be included in all
+    copies or substantial portions of the Software.
+
+    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+    AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+    SOFTWARE.
+
+
+The restrictive separator follows firi.hpp's ellipsoid-metric tangent
+principle, but uses a new finite 2D angular active-set enumeration for a
+complete convex cell and two clearance-protected seed endpoints. It maximizes
+signed cell support divided by the ellipsoidal normal norm, then subtracts
+metric clearance. Unlike the former positive-offset SLSQP representation,
+its offset is free and negative support does not exclude a feasible separator.
+Stationary directions, cell-support switches and clearance-active directions
+exhaust the angular extrema; no optimizer retries or point-cloud replacement
+are used. The existing certified NLopt MVIE iteration remains unchanged.
+This is an attributed whole-cell adaptation, not unchanged upstream FIRI or
+a claim of globally maximum-volume polygons.
+
+No lbfgs.hpp or sdlp.hpp code is incorporated. The inspected sdlp.hpp has separate Hohmeyer (1990) and Wang (2021) permissive notices; lbfgs.hpp has no file-level license notice. Neither is needed: the Python reference uses NumPy/SciPy; the C++ runtime uses installed Eigen/NLopt.
+
+Original-edge subdivision and shared-endpoint connection regions adapt the
+convexCover mechanism in gcopter/include/gcopter/sfc_gen.hpp at the same pinned
+commit. Unlike upstream, every solver result and adjacent interior overlap is
+checked; obstacles are complete grid cells with metric clearance, not points.
+Post-generation pruning adapts shortCut's backward earliest-predecessor search
+from that same file. Unlike upstream's overlap-only shortcut, every skipped
+span must retain continuous original-edge coverage by analytic halfspace
+clipping, and every final join retains the certified interior witness. No
+ignored solver failure return is incorporated.

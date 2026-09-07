@@ -73,6 +73,22 @@ target_link_libraries(kin_replan_node
   Eigen3::Eigen
 )
 
+if(CATKIN_ENABLE_TESTING)
+  catkin_add_gtest(test_sim_odom_stop
+    test/test_sim_odom_stop.cpp
+    src/planner_manager.cpp
+  )
+  if(TARGET test_sim_odom_stop)
+    add_dependencies(test_sim_odom_stop ${catkin_EXPORTED_TARGETS})
+    target_link_libraries(test_sim_odom_stop
+      ${catkin_LIBRARIES}
+      ${PCL_LIBRARIES}
+      ${OpenCV_LIBRARIES}
+      Eigen3::Eigen
+    )
+  endif()
+endif()
+
 #############
 ## Install ##
 #############

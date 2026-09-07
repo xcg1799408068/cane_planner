@@ -2,6 +2,7 @@ cmake_minimum_required(VERSION 2.8.3)
 project(path_searching)
 
 find_package(Eigen3 REQUIRED)
+find_library(NLOPT_LIBRARY NAMES nlopt REQUIRED)
 find_package(PCL 1.7 REQUIRED)
 
 set(CMAKE_CXX_FLAGS "-std=c++14 ${CMAKE_CXX_FLAGS} -O3 -Wall")
@@ -37,8 +38,10 @@ include_directories(
 
 add_library(convex_corridor
     src/convex_corridor.cpp
+    src/corridor_failure_snapshot.cpp
     )
 target_link_libraries(convex_corridor
+    ${NLOPT_LIBRARY}
     ${catkin_LIBRARIES}
     )
 
@@ -59,7 +62,20 @@ target_link_libraries( path_searching
     ${catkin_LIBRARIES} 
     )  
 
+add_executable(convex_corridor_replay src/convex_corridor_replay.cpp)
+target_link_libraries(convex_corridor_replay convex_corridor)
+
 if(CATKIN_ENABLE_TESTING)
+  # White-box target includes convex_corridor.cpp; do not link a second copy.
+  catkin_add_gtest(test_mvie_roundoff test/test_mvie_roundoff.cpp src/corridor_failure_snapshot.cpp)
+  target_link_libraries(test_mvie_roundoff ${NLOPT_LIBRARY} ${catkin_LIBRARIES})
+  catkin_add_gtest(test_corridor_failure_snapshot test/test_corridor_failure_snapshot.cpp)
+  target_link_libraries(test_corridor_failure_snapshot convex_corridor)
+  catkin_add_gtest(test_astar_edges test/test_astar_edges.cpp)
+  target_compile_definitions(test_astar_edges PRIVATE ASTAR_EDGE_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/test/fixtures/corridor_failures/")
+  target_link_libraries(test_astar_edges path_searching ${catkin_LIBRARIES})
+  catkin_add_gtest(test_static_mpc test/test_static_mpc.cpp)
+  target_link_libraries(test_static_mpc path_searching ${catkin_LIBRARIES})
   catkin_add_gtest(test_kinematic_mppi_controller
     test/test_kinematic_mppi_controller.cpp
   )
@@ -78,6 +94,7 @@ if(CATKIN_ENABLE_TESTING)
     test/test_convex_corridor.cpp
   )
   target_link_libraries(test_convex_corridor
+    path_searching
     convex_corridor
     ${catkin_LIBRARIES}
   )

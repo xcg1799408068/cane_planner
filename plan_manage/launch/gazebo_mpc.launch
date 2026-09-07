@@ -3,6 +3,9 @@
     <env name="GAZEBO_PLUGIN_PATH" value="$(find plan_manage)/../../../../devel/lib:$(find plan_manage)/plugins:$(optenv GAZEBO_PLUGIN_PATH)"/>
     <env name="GAZEBO_MODEL_PATH" value="$(find plan_manage)/models"/>
     <arg name="planner" default="3"/>
+    <!-- Planner 3: soft preference only; 1x penalty over 0.8 m additional clearance. -->
+    <arg name="astar_w_clearance" default="$(eval 1.0 if arg('planner') == 3 else 0.0)"/>
+    <arg name="astar_clearance_sigma" default="0.8"/>
     <arg name="world_file" default="$(find plan_manage)/worlds/corridor_static_9.world"/>
     <arg name="dynamic_world_file" default="$(find plan_manage)/worlds/corridor_dynamic_9.world"/>
     <arg name="use_world_pedestrians" default="false"/>
@@ -43,22 +46,13 @@
     <arg name="global_esdf_query_max_height" default="1.8"/>
     <arg name="global_esdf_query_step" default="0.3"/>
     <arg name="global_esdf_inflation" default="0.20"/>
-    <arg name="global_esdf_safe_distance" default="0.15"/>
+    <arg name="global_esdf_safe_distance" default="0.0"/>
     <arg name="global_esdf_min_points_per_cell" default="1"/>
-    <arg name="static_endpoint_clear_radius" default="0.25"/>
     <arg name="publish_static_map_debug" default="true"/>
     <arg name="mpc_enable_cpa" default="true"/>
     <arg name="mpc_enable_stop_enforce" default="true"/>
-    <arg name="mpc_corridor_stop_valid_ratio_threshold" default="0.2"/>
-    <arg name="convex_corridor_enable" default="false"/>
-    <arg name="convex_corridor_segment_length" default="0.8"/>
-    <arg name="convex_corridor_half_width" default="0.45"/>
-    <arg name="convex_corridor_min_half_width" default="0.25"/>
-    <arg name="convex_corridor_static_sample_ds" default="0.2"/>
-    <arg name="convex_corridor_static_sample_dl" default="0.1"/>
-    <arg name="convex_corridor_pedestrian_radius" default="0.35"/>
-    <arg name="convex_corridor_pedestrian_time_margin" default="0.4"/>
-    <arg name="convex_corridor_start_grace_length" default="0.4"/>
+    <arg name="convex_corridor_local_radius" default="3.0"/>
+    <arg name="convex_corridor_max_segment_length" default="1.0"/>
 
     <!-- Load the verified high-mounted Velodyne model to the param server. -->
     <param name="robot_description" textfile="$(arg urdf_file)"/>
@@ -137,6 +131,8 @@
     <!-- Planner stack (A* + MPC) -->
     <include if="$(arg use_planner)" file="$(find plan_manage)/launch/include/algorithm.launch">
         <arg name="planner" value="$(arg planner)"/>
+        <arg name="astar_w_clearance" value="$(arg astar_w_clearance)"/>
+        <arg name="astar_clearance_sigma" value="$(arg astar_clearance_sigma)"/>
         <arg name="odometry_topic" value="$(arg planner_odom_topic)"/>
         <arg name="odometry_world" value="$(arg planner_odom_topic)"/>
         <arg name="cloud_topic" value="$(arg planner_cloud_topic)"/>
@@ -176,20 +172,11 @@
         <arg name="global_esdf_inflation" value="$(arg global_esdf_inflation)"/>
         <arg name="global_esdf_safe_distance" value="$(arg global_esdf_safe_distance)"/>
         <arg name="global_esdf_min_points_per_cell" value="$(arg global_esdf_min_points_per_cell)"/>
-        <arg name="static_endpoint_clear_radius" value="$(arg static_endpoint_clear_radius)"/>
         <arg name="publish_static_map_debug" value="$(arg publish_static_map_debug)"/>
         <arg name="mpc_enable_cpa" value="$(arg mpc_enable_cpa)"/>
         <arg name="mpc_enable_stop_enforce" value="$(arg mpc_enable_stop_enforce)"/>
-        <arg name="mpc_corridor_stop_valid_ratio_threshold" value="$(arg mpc_corridor_stop_valid_ratio_threshold)"/>
-        <arg name="convex_corridor_enable" value="$(arg convex_corridor_enable)"/>
-        <arg name="convex_corridor_segment_length" value="$(arg convex_corridor_segment_length)"/>
-        <arg name="convex_corridor_half_width" value="$(arg convex_corridor_half_width)"/>
-        <arg name="convex_corridor_min_half_width" value="$(arg convex_corridor_min_half_width)"/>
-        <arg name="convex_corridor_static_sample_ds" value="$(arg convex_corridor_static_sample_ds)"/>
-        <arg name="convex_corridor_static_sample_dl" value="$(arg convex_corridor_static_sample_dl)"/>
-        <arg name="convex_corridor_pedestrian_radius" value="$(arg convex_corridor_pedestrian_radius)"/>
-        <arg name="convex_corridor_pedestrian_time_margin" value="$(arg convex_corridor_pedestrian_time_margin)"/>
-        <arg name="convex_corridor_start_grace_length" value="$(arg convex_corridor_start_grace_length)"/>
+        <arg name="convex_corridor_local_radius" value="$(arg convex_corridor_local_radius)"/>
+        <arg name="convex_corridor_max_segment_length" value="$(arg convex_corridor_max_segment_length)"/>
     </include>
 
     <!-- Pedestrian simulation -->

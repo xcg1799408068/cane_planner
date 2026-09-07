@@ -103,6 +103,7 @@ namespace cane_planner
   class Astar
   {
   private:
+    friend class AstarEdgeTestAccess;
     /* ---------- main data structure ---------- */
     vector<NodePtr> path_node_pool_;
     int use_node_num_, iter_num_;
@@ -119,18 +120,22 @@ namespace cane_planner
     /* search */
     double lambda_heu_;
     double horizon_;
-    int allocate_num_;
+    int allocate_num_ = 0;
     double tie_breaker_;
     /* clearance-aware cost */
-    double w_clearance_;
-    double clearance_sigma_;
-    double min_clearance_;
-    double traversable_radius_ = 0.0;
+    double w_clearance_ = 0.0;
+    double clearance_sigma_ = 0.8;
     bool use_static_global_map_ = false;
-    double static_endpoint_clear_radius_ = 0.25;
+    // Negative disables the planner-3 native-cell contract for legacy callers.
+    double corridor_edge_clearance_ = -1.0;
+    bool append_goal_ = false;
+    Eigen::Vector2d exact_goal_;
+    bool corridorEdgeFree(const Eigen::Vector2d& a, const Eigen::Vector2d& b);
+    double corridorEdgeCost(const Eigen::Vector2d& a, const Eigen::Vector2d& b);
+    double corridorHeuristic(const Eigen::Vector2d& a, const Eigen::Vector2d& b) const;
     /* map */
     double resolution_, inv_resolution_, time_resolution_, inv_time_resolution_;
-    Eigen::Vector2d origin_, map_size_2d_;
+    Eigen::Vector2d origin_, map_size_2d_, map_max_2d_;
     double time_origin_;
 
     /* helper */
@@ -155,6 +160,7 @@ namespace cane_planner
     };
 
     /* main API */
+    void setCorridorEdgeClearance(double clearance) { corridor_edge_clearance_ = clearance; }
     void setParam(ros::NodeHandle &nh);
     void init();
     void reset();

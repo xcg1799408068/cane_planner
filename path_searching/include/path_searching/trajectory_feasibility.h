@@ -9,6 +9,20 @@
 namespace cane_planner
 {
 
+enum class FinalSequenceChoice { STOP, BEST, WEIGHTED };
+
+// The optimizer and its regression tests share this final safety arbitration.
+inline FinalSequenceChoice chooseFinalSequence(bool corridor_valid, int best_index,
+                                               bool use_best, double weighted_cost,
+                                               bool weighted_corridor_feasible)
+{
+    if (!corridor_valid || best_index < 0)
+        return FinalSequenceChoice::STOP;
+    if (!use_best && std::isfinite(weighted_cost) && weighted_corridor_feasible)
+        return FinalSequenceChoice::WEIGHTED;
+    return FinalSequenceChoice::BEST;
+}
+
 struct TrajectoryFeasibility
 {
     int valid_trajectory_count = 0;

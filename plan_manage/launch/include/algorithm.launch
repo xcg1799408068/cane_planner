@@ -43,13 +43,11 @@
     <arg name="global_esdf_query_max_height" default="1.8"/>
     <arg name="global_esdf_query_step" default="0.3"/>
     <arg name="global_esdf_inflation" default="0.20"/>
-    <arg name="global_esdf_safe_distance" default="0.15"/>
+    <arg name="global_esdf_safe_distance" default="0.0"/>
     <arg name="global_esdf_min_points_per_cell" default="1"/>
-    <arg name="static_endpoint_clear_radius" default="0.25"/>
-    <arg name="astar_w_clearance" default="0.25"/>
+    <!-- Planner 3: soft preference only; 1x penalty over 0.8 m additional clearance. -->
+    <arg name="astar_w_clearance" default="$(eval 1.0 if arg('planner') == 3 else 0.0)"/>
     <arg name="astar_clearance_sigma" default="0.8"/>
-    <arg name="astar_min_clearance" default="0.0"/>
-    <arg name="astar_traversable_radius" default="0.25"/>
     <arg name="publish_static_map_debug" default="true"/>
     <arg name="mpc_enable_cpa" default="false"/>
     <arg name="mpc_enable_stop_enforce" default="true"/>
@@ -74,22 +72,8 @@
     <arg name="mpc_interaction_cpa_horizon" default="3.0"/>
     <arg name="mpc_interaction_cpa_dist" default="0.8"/>
     <arg name="mpc_interaction_use_cpa_check" default="true"/>
-    <arg name="mpc_interaction_stop_release_clear_time" default="0.15"/>
-    <arg name="mpc_interaction_post_yield_grace_time" default="0.6"/>
-    <arg name="mpc_corridor_stop_valid_ratio_threshold" default="0.2"/>
-    <arg name="convex_corridor_enable" default="false"/>
-    <arg name="convex_corridor_segment_length" default="0.8"/>
-    <arg name="convex_corridor_half_width" default="0.45"/>
-    <arg name="convex_corridor_min_half_width" default="0.25"/>
-    <arg name="convex_corridor_static_sample_ds" default="0.2"/>
-    <arg name="convex_corridor_static_sample_dl" default="0.1"/>
-    <arg name="convex_corridor_pedestrian_radius" default="0.35"/>
-    <arg name="convex_corridor_pedestrian_time_margin" default="0.4"/>
-    <arg name="convex_corridor_start_grace_length" default="0.4"/>
-    <arg name="mpc_convex_corridor_enable" default="$(arg convex_corridor_enable)"/>
-    <arg name="mpc_convex_corridor_hard_reject_enable" default="false"/>
-    <arg name="mpc_w_convex_corridor" default="30.0"/>
-    <arg name="mpc_convex_corridor_hard_margin" default="0.05"/>
+    <arg name="convex_corridor_local_radius" default="3.0"/>
+    <arg name="convex_corridor_max_segment_length" default="1.0"/>
 
     
     <node pkg="plan_manage" name="kin_replan_node" type="kin_replan_node" output="screen" >
@@ -103,7 +87,7 @@
         <param name="manager/sim_speed" value="1.0" type="double"/>
         <param name="manager/global_wp_spacing" value="1.0" type="double"/>
         <param name="manager/global_wp_arrival_radius" value="$(arg global_wp_arrival_radius)" type="double"/>
-        <param name="manager/global_wp_smoothing_enable" value="true" type="bool"/>
+        <param name="manager/global_wp_smoothing_enable" value="false" type="bool"/>
         <param name="manager/global_wp_smoothing_radius" value="0.45" type="double"/>
         <param name="manager/global_wp_smoothing_min_turn_angle" value="0.55" type="double"/>
         <param name="manager/global_wp_smoothing_samples" value="4" type="int"/>
@@ -135,8 +119,10 @@
         <param name="sdf_map/local_update_range_x"  value="5.5" /> 
         <param name="sdf_map/local_update_range_y"  value="5.5" /> 
         <param name="sdf_map/local_update_range_z"  value="4.5" /> 
-        <!-- obstacles_inflation（膨胀系数）原本为0.2，感觉太大，设置为0.1 -->
-        <param name="sdf_map/obstacles_inflation" value="0.1" />
+        <!-- Local SDF inflation is the authoritative static safety boundary for
+             the live planner. Collision/margin stays at zero to avoid adding a
+             second distance threshold on top of the inflated occupancy. -->
+        <param name="sdf_map/obstacles_inflation" value="$(arg collision_margin)" />
         <!-- sdf_map/local_bound_inflate原本0.4 -->
         <param name="sdf_map/local_bound_inflate" value="0.0"/>
         <param name="sdf_map/local_map_margin" value="10"/>
@@ -213,17 +199,16 @@
         <param name="astar/horizon" value="$(arg kin_horizon)"/>
         <param name="astar/resolution_astar" value="0.1"/>
         <param name="astar/time_resolution" value="0"/>
-        <param name="astar/lambda_heu" value="0.2"/>
+        <!-- Planner 3 uses metre costs and an uninflated Euclidean lower bound. -->
+        <param name="astar/lambda_heu" value="$(eval 1.0 if arg('planner') == 3 else 0.2)"/>
         <param name="astar/allocate_num" value="300000"/>
-        <!-- A* keeps the global guide away from static narrow bands; MPPI handles local dynamics. -->
+        <!-- Occupancy and continuous hard clearance remain authoritative;
+             planner 3 adds only a soft preference, not a footprint-radius rejection. -->
         <param name="astar/w_clearance" value="$(arg astar_w_clearance)" type="double"/>
         <param name="astar/clearance_sigma" value="$(arg astar_clearance_sigma)" type="double"/>
-        <param name="astar/min_clearance" value="$(arg astar_min_clearance)" type="double"/>
-        <param name="astar/traversable_radius" value="$(arg astar_traversable_radius)" type="double"/>
         <param name="astar/use_static_global_map" value="$(arg use_static_global_map)" type="bool"/>
-        <param name="astar/static_endpoint_clear_radius" value="$(arg static_endpoint_clear_radius)" type="double"/>
         <!-- collision set -->
-        <param name="Collision/margin" value="$(arg collision_margin)"/>
+        <param name="Collision/margin" value="0.0" type="double"/>
         <param name="Collision/SliceHeight" value="$(arg slice_height)"/>
         <param name="Collision/use_static_global_map" value="$(arg use_static_global_map)" type="bool"/>
         <param name="Collision/use_static_global_esdf" value="$(arg use_static_global_esdf)" type="bool"/>
@@ -253,6 +238,10 @@
         <param name="lfpc/delta_t" value="0.07"/>
         <param name="lfpc/t_sup" value="0.35"/>
         <!-- mpc controller set -->
+        <!-- Display real final-iteration sample paths, uniformly selected (cap: 50).
+             Cyan: finite cost; orange: rejected, possibly a truncated rollout. -->
+        <param name="mpc/sample_vis_enable" value="true" type="bool"/>
+        <param name="mpc/sample_vis_count" value="20" type="int"/>
         <param name="mpc/horizon_steps" value="10" type="int"/>
         <param name="mpc/num_samples" value="$(arg mpc_num_samples)" type="int"/>
         <!-- MPPI温度：越小越贪心(选最优)，越大越平滑(加权平均) -->
@@ -265,40 +254,28 @@
         <param name="mpc/sigma_al" value="0.10" type="double"/>
         <param name="mpc/sigma_aw" value="0.06" type="double"/>
         <param name="mpc/sigma_api" value="0.15" type="double"/>
-        <!-- 代价权重。动态行人不再使用高斯势场惩罚，改由时变走廊几何约束处理。 -->
-        <!-- 每步位移代价：惩罚绕路，保方向性 -->
-        <param name="mpc/w_move" value="0.0" type="double"/>
+        <!-- Planner 3: goal, steering magnitude and steering variation only.
+             Static collision and the A* spatial corridor are mandatory hard checks. -->
         <!-- 转向幅度代价：惩罚|api|绝对值，越大越走直线 -->
         <param name="mpc/w_steer" value="0.5" type="double"/>
-        <!-- 保留参数兼容旧实验；主线默认不使用动态势场惩罚。 -->
-        <param name="mpc/w_risk" value="$(arg mpc_w_risk)" type="double"/>
-        <param name="mpc/dynamic_hard_reject_enable" value="$(arg mpc_enable_dynamic_hard_reject)" type="bool"/>
-        <param name="mpc/dynamic_collision_hard_reject_enable" value="false" type="bool"/>
+        <!-- planner=4的动态势场参数；planner=3不读取，保留共享launch接口。 -->
+        <param if="$(eval arg('planner') == 4)" name="mpc/w_risk" value="$(arg mpc_w_risk)" type="double"/>
+        <param if="$(eval arg('planner') == 4)" name="mpc/dynamic_hard_reject_enable" value="$(arg mpc_enable_dynamic_hard_reject)" type="bool"/>
         <!-- goal已归一化：最终距离/horizon步数×权重 -->
         <param name="mpc/w_goal" value="25.0" type="double"/>
         <!-- 转向变化率惩罚权重：越大越平滑，越小越灵活（0=不限制） -->
         <param name="mpc/w_dapi" value="0.2" type="double"/>
-        <!-- 旧动态势场阈值，仅用于兼容/可视化，不作为主线行人约束。 -->
-        <param name="mpc/risk_hard_threshold_ratio" value="0.4" type="double"/>
-        <!-- 静态障碍物碰撞惩罚（单点），总量级=w_static×n×penalty，巨大→几乎硬约束 -->
-        <param name="mpc/static_penalty" value="500.0" type="double"/>
-        <param name="mpc/w_static" value="1.0" type="double"/>
-        <!-- Dynamic obstacle geometry: use message size as hard safety radius input. -->
-        <param name="mpc/use_dynamic_size" value="true" type="bool"/>
-        <param name="mpc/dynamic_safety_margin" value="0.05" type="double"/>
-        <param name="mpc/dynamic_min_radius" value="0.20" type="double"/>
-        <!-- SDF排斥力权重、排斥生效距离(m)：距墙<margin时二次增长 -->
-        <param name="mpc/w_prox" value="0.0" type="double"/>
-        <param name="mpc/prox_margin" value="0.3" type="double"/>
-        <param name="mpc/corridor_enable" value="true" type="bool"/>
-        <param name="mpc/corridor_hard_reject_enable" value="true" type="bool"/>
-        <param name="mpc/w_corridor" value="20.0" type="double"/>
-        <param name="mpc/w_corridor_dynamic" value="20.0" type="double"/>
-        <param name="mpc/corridor_hard_margin" value="0.50" type="double"/>
-        <param name="mpc/convex_corridor_enable" value="$(arg mpc_convex_corridor_enable)" type="bool"/>
-        <param name="mpc/convex_corridor_hard_reject_enable" value="$(arg mpc_convex_corridor_hard_reject_enable)" type="bool"/>
-        <param name="mpc/w_convex_corridor" value="$(arg mpc_w_convex_corridor)" type="double"/>
-        <param name="mpc/convex_corridor_hard_margin" value="$(arg mpc_convex_corridor_hard_margin)" type="double"/>
+        <!-- planner=4及风险场可视化使用；不作为planner=3行人约束。 -->
+        <param if="$(eval arg('planner') == 4)" name="mpc/risk_hard_threshold_ratio" value="0.4" type="double"/>
+        <!-- 保留planner=4读取的兼容参数；planner=3静态碰撞直接拒绝，不读取这些权重。 -->
+        <param if="$(eval arg('planner') == 4)" name="mpc/static_penalty" value="500.0" type="double"/>
+        <param if="$(eval arg('planner') == 4)" name="mpc/w_static" value="1.0" type="double"/>
+        <!-- Planner 4 only: dynamic geometry and soft proximity costs. -->
+        <param if="$(eval arg('planner') == 4)" name="mpc/use_dynamic_size" value="true" type="bool"/>
+        <param if="$(eval arg('planner') == 4)" name="mpc/dynamic_safety_margin" value="0.05" type="double"/>
+        <param if="$(eval arg('planner') == 4)" name="mpc/dynamic_min_radius" value="0.20" type="double"/>
+        <param if="$(eval arg('planner') == 4)" name="mpc/w_prox" value="0.0" type="double"/>
+        <param if="$(eval arg('planner') == 4)" name="mpc/prox_margin" value="0.3" type="double"/>
         <param name="mpc/use_best" value="false" type="bool"/>
         <!-- 使用真实模式true，为false则步长和步宽不固定 -->
         <!-- Guide-cane gait model: forward motion is supplied by the user, MPC mainly optimizes steering. -->
@@ -306,84 +283,71 @@
         <param name="mpc/goal_arrival_threshold" value="0.2" type="double"/>
         <param name="mpc/fov_range" value="5.0" type="double"/>
         <param name="mpc/debug_enable" value="true" type="bool"/>
-        <!-- Stop advice for guide-cane use: publish/optionally enforce stop when no viable MPPI rollout remains. -->
-        <param name="mpc/stop_advice_enable" value="$(arg mpc_enable_stop_advice)" type="bool"/>
-        <param name="mpc/stop_advice_enforce" value="$(arg mpc_enable_stop_enforce)" type="bool"/>
-        <param name="mpc/stop_hold_time" value="0.8" type="double"/>
-        <param name="mpc/stop_release_clear_time" value="0.5" type="double"/>
-        <param name="mpc/corridor_stop_enable" value="true" type="bool"/>
-        <param name="mpc/corridor_stop_valid_ratio_threshold" value="$(arg mpc_corridor_stop_valid_ratio_threshold)" type="double"/>
+        <!-- Planner 3 always advises/enforces a simulated STOP on invalid output. -->
+        <param if="$(eval arg('planner') == 4)" name="mpc/stop_advice_enable" value="$(arg mpc_enable_stop_advice)" type="bool"/>
+        <param if="$(eval arg('planner') == 4)" name="mpc/stop_advice_enforce" value="$(arg mpc_enable_stop_enforce)" type="bool"/>
         <!-- Stage 2 crossing interaction. ST yield supervises crossing priority; MPPI social cost is not used. -->
-        <param name="mpc/interaction_enable" value="$(arg mpc_enable_interaction)" type="bool"/>
-        <param name="mpc/interaction_enable_yield" value="$(arg mpc_interaction_enable_yield)" type="bool"/>
-        <param name="mpc/interaction_st_horizon" value="$(arg mpc_interaction_st_horizon)" type="double"/>
-        <param name="mpc/interaction_yield_trigger_time" value="$(arg mpc_interaction_yield_trigger_time)" type="double"/>
-        <param name="mpc/interaction_robot_radius" value="$(arg mpc_interaction_robot_radius)" type="double"/>
-        <param name="mpc/interaction_yield_safety_margin" value="$(arg mpc_interaction_yield_safety_margin)" type="double"/>
-        <param name="mpc/interaction_front_min" value="$(arg mpc_interaction_front_min)" type="double"/>
-        <param name="mpc/interaction_front_max" value="$(arg mpc_interaction_front_max)" type="double"/>
-        <param name="mpc/interaction_corridor_width" value="$(arg mpc_interaction_corridor_width)" type="double"/>
-        <param name="mpc/interaction_cross_speed" value="$(arg mpc_interaction_cross_speed)" type="double"/>
-        <param name="mpc/interaction_time_gap" value="$(arg mpc_interaction_time_gap)" type="double"/>
-        <param name="mpc/interaction_min_robot_speed" value="$(arg mpc_interaction_min_robot_speed)" type="double"/>
-        <param name="mpc/interaction_cpa_horizon" value="$(arg mpc_interaction_cpa_horizon)" type="double"/>
-        <param name="mpc/interaction_cpa_dist" value="$(arg mpc_interaction_cpa_dist)" type="double"/>
-        <param name="mpc/interaction_use_cpa_check" value="$(arg mpc_interaction_use_cpa_check)" type="bool"/>
-        <param name="mpc/interaction_stop_release_clear_time" value="$(arg mpc_interaction_stop_release_clear_time)" type="double"/>
-        <param name="mpc/interaction_post_yield_grace_time" value="$(arg mpc_interaction_post_yield_grace_time)" type="double"/>
+        <param if="$(eval arg('planner') == 4)" name="mpc/interaction_enable" value="$(arg mpc_enable_interaction)" type="bool"/>
+        <param if="$(eval arg('planner') == 4)" name="mpc/interaction_enable_yield" value="$(arg mpc_interaction_enable_yield)" type="bool"/>
+        <param if="$(eval arg('planner') == 4)" name="mpc/interaction_st_horizon" value="$(arg mpc_interaction_st_horizon)" type="double"/>
+        <param if="$(eval arg('planner') == 4)" name="mpc/interaction_yield_trigger_time" value="$(arg mpc_interaction_yield_trigger_time)" type="double"/>
+        <param if="$(eval arg('planner') == 4)" name="mpc/interaction_robot_radius" value="$(arg mpc_interaction_robot_radius)" type="double"/>
+        <param if="$(eval arg('planner') == 4)" name="mpc/interaction_yield_safety_margin" value="$(arg mpc_interaction_yield_safety_margin)" type="double"/>
+        <param if="$(eval arg('planner') == 4)" name="mpc/interaction_front_min" value="$(arg mpc_interaction_front_min)" type="double"/>
+        <param if="$(eval arg('planner') == 4)" name="mpc/interaction_front_max" value="$(arg mpc_interaction_front_max)" type="double"/>
+        <param if="$(eval arg('planner') == 4)" name="mpc/interaction_corridor_width" value="$(arg mpc_interaction_corridor_width)" type="double"/>
+        <param if="$(eval arg('planner') == 4)" name="mpc/interaction_cross_speed" value="$(arg mpc_interaction_cross_speed)" type="double"/>
+        <param if="$(eval arg('planner') == 4)" name="mpc/interaction_time_gap" value="$(arg mpc_interaction_time_gap)" type="double"/>
+        <param if="$(eval arg('planner') == 4)" name="mpc/interaction_min_robot_speed" value="$(arg mpc_interaction_min_robot_speed)" type="double"/>
+        <param if="$(eval arg('planner') == 4)" name="mpc/interaction_cpa_horizon" value="$(arg mpc_interaction_cpa_horizon)" type="double"/>
+        <param if="$(eval arg('planner') == 4)" name="mpc/interaction_cpa_dist" value="$(arg mpc_interaction_cpa_dist)" type="double"/>
+        <param if="$(eval arg('planner') == 4)" name="mpc/interaction_use_cpa_check" value="$(arg mpc_interaction_use_cpa_check)" type="bool"/>
         <param name="mpc/nominal_al" value="$(arg user_step_length)" type="double"/>
         <param name="mpc/nominal_aw" value="0.0" type="double"/>
         <param name="mpc/nominal_api" value="0.0" type="double"/>
 
-        <!-- Dynamic walking corridor: a single path-following local corridor constrains MPPI.
-             Optional lateral candidates are kept for experiments but disabled by default. -->
-        <param name="dwc/enable" value="true" type="bool"/>
-        <param name="dwc/length" value="4.0" type="double"/>
-        <param name="dwc/half_width" value="0.45" type="double"/>
-        <param name="dwc/min_half_width" value="0.25" type="double"/>
-        <param name="dwc/lateral_candidates_enable" value="false" type="bool"/>
-        <param name="dwc/lateral_shift" value="0.9" type="double"/>
-        <param name="dwc/prediction_horizon" value="3.0" type="double"/>
-        <param name="dwc/prediction_dt" value="0.25" type="double"/>
-        <param name="dwc/robot_speed" value="1.14" type="double"/>
-        <param name="dwc/robot_radius" value="0.25" type="double"/>
-        <param name="dwc/dynamic_min_radius" value="0.20" type="double"/>
-        <param name="dwc/dynamic_safety_margin" value="0.15" type="double"/>
-        <param name="dwc/dynamic_progress_margin" value="0.50" type="double"/>
-        <param name="dwc/dynamic_blocking_enable" value="false" type="bool"/>
-        <param name="dwc/lateral_offset_weight" value="0.2" type="double"/>
-        <param name="dwc/front_pass_weight" value="4.0" type="double"/>
-        <param name="dwc/front_pass_sigma_s" value="1.2" type="double"/>
-        <param name="dwc/front_pass_sigma_l" value="1.0" type="double"/>
-        <param name="dwc/front_pass_length" value="3.0" type="double"/>
-        <param name="dwc/front_pass_lateral" value="1.8" type="double"/>
-        <param name="dwc/static_sample_ds" value="0.4" type="double"/>
-        <param name="dwc/static_sample_dl" value="0.3" type="double"/>
-        <param name="dwc/static_centerline_opt_enable" value="true" type="bool"/>
-        <param name="dwc/static_truncate_enable" value="true" type="bool"/>
-        <param name="dwc/static_min_feasible_length" value="0.8" type="double"/>
-        <param name="dwc/static_truncate_backoff" value="0.2" type="double"/>
-        <param name="dwc/static_start_grace_length" value="0.4" type="double"/>
-        <param name="dwc/static_opt_lateral_range" value="1.0" type="double"/>
-        <param name="dwc/static_opt_lateral_step" value="0.1" type="double"/>
-        <param name="dwc/static_opt_smooth_weight" value="2.0" type="double"/>
-        <param name="dwc/human_cane_footprint_enable" value="true" type="bool"/>
-        <param name="dwc/human_cane_body_radius" value="0.25" type="double"/>
-        <param name="dwc/human_cane_cane_length" value="0.65" type="double"/>
-        <param name="dwc/human_cane_front_radius" value="0.12" type="double"/>
-        <param name="dwc/human_cane_safety_margin" value="0.03" type="double"/>
-        <param name="dwc/human_cane_footprint_samples" value="8" type="int"/>
+        <!-- Planner 4 only: legacy dynamic walking corridor diagnostics.
+             Planner 3 never constructs DWC or reads this configuration. -->
+        <param if="$(eval arg('planner') == 4)" name="dwc/enable" value="true" type="bool"/>
+        <param if="$(eval arg('planner') == 4)" name="dwc/length" value="4.0" type="double"/>
+        <param if="$(eval arg('planner') == 4)" name="dwc/half_width" value="0.45" type="double"/>
+        <param if="$(eval arg('planner') == 4)" name="dwc/min_half_width" value="0.25" type="double"/>
+        <param if="$(eval arg('planner') == 4)" name="dwc/lateral_candidates_enable" value="false" type="bool"/>
+        <param if="$(eval arg('planner') == 4)" name="dwc/lateral_shift" value="0.9" type="double"/>
+        <param if="$(eval arg('planner') == 4)" name="dwc/prediction_horizon" value="3.0" type="double"/>
+        <param if="$(eval arg('planner') == 4)" name="dwc/prediction_dt" value="0.25" type="double"/>
+        <param if="$(eval arg('planner') == 4)" name="dwc/robot_speed" value="1.14" type="double"/>
+        <param if="$(eval arg('planner') == 4)" name="dwc/robot_radius" value="0.25" type="double"/>
+        <param if="$(eval arg('planner') == 4)" name="dwc/dynamic_min_radius" value="0.20" type="double"/>
+        <param if="$(eval arg('planner') == 4)" name="dwc/dynamic_safety_margin" value="0.15" type="double"/>
+        <param if="$(eval arg('planner') == 4)" name="dwc/dynamic_progress_margin" value="0.50" type="double"/>
+        <param if="$(eval arg('planner') == 4)" name="dwc/dynamic_blocking_enable" value="false" type="bool"/>
+        <param if="$(eval arg('planner') == 4)" name="dwc/lateral_offset_weight" value="0.2" type="double"/>
+        <param if="$(eval arg('planner') == 4)" name="dwc/front_pass_weight" value="4.0" type="double"/>
+        <param if="$(eval arg('planner') == 4)" name="dwc/front_pass_sigma_s" value="1.2" type="double"/>
+        <param if="$(eval arg('planner') == 4)" name="dwc/front_pass_sigma_l" value="1.0" type="double"/>
+        <param if="$(eval arg('planner') == 4)" name="dwc/front_pass_length" value="3.0" type="double"/>
+        <param if="$(eval arg('planner') == 4)" name="dwc/front_pass_lateral" value="1.8" type="double"/>
+        <param if="$(eval arg('planner') == 4)" name="dwc/static_sample_ds" value="0.4" type="double"/>
+        <param if="$(eval arg('planner') == 4)" name="dwc/static_sample_dl" value="0.3" type="double"/>
+        <param if="$(eval arg('planner') == 4)" name="dwc/static_centerline_opt_enable" value="true" type="bool"/>
+        <param if="$(eval arg('planner') == 4)" name="dwc/static_truncate_enable" value="true" type="bool"/>
+        <param if="$(eval arg('planner') == 4)" name="dwc/static_min_feasible_length" value="0.8" type="double"/>
+        <param if="$(eval arg('planner') == 4)" name="dwc/static_truncate_backoff" value="0.2" type="double"/>
+        <param if="$(eval arg('planner') == 4)" name="dwc/static_start_grace_length" value="0.4" type="double"/>
+        <param if="$(eval arg('planner') == 4)" name="dwc/static_opt_lateral_range" value="1.0" type="double"/>
+        <param if="$(eval arg('planner') == 4)" name="dwc/static_opt_lateral_step" value="0.1" type="double"/>
+        <param if="$(eval arg('planner') == 4)" name="dwc/static_opt_smooth_weight" value="2.0" type="double"/>
+        <param if="$(eval arg('planner') == 4)" name="dwc/human_cane_footprint_enable" value="true" type="bool"/>
+        <param if="$(eval arg('planner') == 4)" name="dwc/human_cane_body_radius" value="0.25" type="double"/>
+        <param if="$(eval arg('planner') == 4)" name="dwc/human_cane_cane_length" value="0.65" type="double"/>
+        <param if="$(eval arg('planner') == 4)" name="dwc/human_cane_front_radius" value="0.12" type="double"/>
+        <param if="$(eval arg('planner') == 4)" name="dwc/human_cane_safety_margin" value="0.03" type="double"/>
+        <param if="$(eval arg('planner') == 4)" name="dwc/human_cane_footprint_samples" value="8" type="int"/>
 
-        <!-- Convex corridor diagnostics: generated and published only; MPPI enforcement is a later stage. -->
-        <param name="convex_corridor/enable" value="$(arg convex_corridor_enable)" type="bool"/>
-        <param name="convex_corridor/segment_length" value="$(arg convex_corridor_segment_length)" type="double"/>
-        <param name="convex_corridor/half_width" value="$(arg convex_corridor_half_width)" type="double"/>
-        <param name="convex_corridor/min_half_width" value="$(arg convex_corridor_min_half_width)" type="double"/>
-        <param name="convex_corridor/static_sample_ds" value="$(arg convex_corridor_static_sample_ds)" type="double"/>
-        <param name="convex_corridor/static_sample_dl" value="$(arg convex_corridor_static_sample_dl)" type="double"/>
-        <param name="convex_corridor/pedestrian_radius" value="$(arg convex_corridor_pedestrian_radius)" type="double"/>
-        <param name="convex_corridor/pedestrian_time_margin" value="$(arg convex_corridor_pedestrian_time_margin)" type="double"/>
-        <param name="convex_corridor/start_grace_length" value="$(arg convex_corridor_start_grace_length)" type="double"/>
+        <!-- Planner 3 mandatory static A* corridor; sampling follows map backend resolution. -->
+        <param name="convex_corridor/local_radius" value="$(arg convex_corridor_local_radius)" type="double"/>
+        <param name="convex_corridor/max_segment_length" value="$(arg convex_corridor_max_segment_length)" type="double"/>
 
         <!-- kinematic MPPI baseline (planner=4): same risk/goal/static costs, unicycle rollout. -->
         <!-- Match planner=3 timing: 10 control steps, each LFPC support duration 0.35s. -->
@@ -400,21 +364,21 @@
         <param name="mpc_kin/nominal_v" value="1.14" type="double"/>
         <param name="mpc_kin/nominal_omega" value="0.0" type="double"/>
         <param name="mpc_kin/robot_radius" value="0.25" type="double"/>
-        <param name="mpc/risk_tau" value="0.8" type="double"/>
-        <param name="mpc/risk_A" value="5.0" type="double"/>
-        <param name="mpc/risk_sigma_x" value="0.6" type="double"/>
-        <param name="mpc/risk_sigma_y" value="$(arg mpc_risk_sigma_y)" type="double"/>
-        <param name="mpc/risk_cutoff" value="3.0" type="double"/>
+        <param if="$(eval arg('planner') == 4)" name="mpc/risk_tau" value="0.8" type="double"/>
+        <param if="$(eval arg('planner') == 4)" name="mpc/risk_A" value="5.0" type="double"/>
+        <param if="$(eval arg('planner') == 4)" name="mpc/risk_sigma_x" value="0.6" type="double"/>
+        <param if="$(eval arg('planner') == 4)" name="mpc/risk_sigma_y" value="$(arg mpc_risk_sigma_y)" type="double"/>
+        <param if="$(eval arg('planner') == 4)" name="mpc/risk_cutoff" value="3.0" type="double"/>
         <!-- 光晕：硬核心外的低幅包络。halo_scale=0关闭(纯高斯)，scale>0时包络宽度=core_sigma*scale，ratio=峰值/A -->
-        <param name="mpc/risk_halo_scale" value="2.0" type="double"/>
-        <param name="mpc/risk_halo_ratio" value="0.12" type="double"/>
+        <param if="$(eval arg('planner') == 4)" name="mpc/risk_halo_scale" value="2.0" type="double"/>
+        <param if="$(eval arg('planner') == 4)" name="mpc/risk_halo_ratio" value="0.12" type="double"/>
         <!-- CPA/TTC dynamic conflict risk: improves crossing-pedestrian avoidance without increasing MPC horizon. -->
-        <param name="mpc/risk_cpa_enable" value="$(arg mpc_enable_cpa)" type="bool"/>
-        <param name="mpc/risk_cpa_weight" value="$(arg mpc_cpa_weight)" type="double"/>
-        <param name="mpc/risk_cpa_sigma_d" value="0.65" type="double"/>
-        <param name="mpc/risk_cpa_tau" value="1.0" type="double"/>
-        <param name="mpc/risk_cpa_time_horizon" value="2.0" type="double"/>
-        <param name="mpc/risk_cpa_cutoff_dist" value="3.0" type="double"/>
+        <param if="$(eval arg('planner') == 4)" name="mpc/risk_cpa_enable" value="$(arg mpc_enable_cpa)" type="bool"/>
+        <param if="$(eval arg('planner') == 4)" name="mpc/risk_cpa_weight" value="$(arg mpc_cpa_weight)" type="double"/>
+        <param if="$(eval arg('planner') == 4)" name="mpc/risk_cpa_sigma_d" value="0.65" type="double"/>
+        <param if="$(eval arg('planner') == 4)" name="mpc/risk_cpa_tau" value="1.0" type="double"/>
+        <param if="$(eval arg('planner') == 4)" name="mpc/risk_cpa_time_horizon" value="2.0" type="double"/>
+        <param if="$(eval arg('planner') == 4)" name="mpc/risk_cpa_cutoff_dist" value="3.0" type="double"/>
 
         <!-- trajectory optimization 代价权重 -->
         <!-- lambda1: 平滑度, lambda2: 碰撞, lambda3: 可行性, lambda4: 拟合, lambda7: 动力学 -->

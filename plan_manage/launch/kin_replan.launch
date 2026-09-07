@@ -1,25 +1,23 @@
 <launch>
+    <arg name="planner" default="2"/>
+    <!-- Planner 3: soft preference only; 1x penalty over 0.8 m additional clearance. -->
+    <arg name="astar_w_clearance" default="$(eval 1.0 if arg('planner') == 3 else 0.0)"/>
+    <arg name="astar_clearance_sigma" default="0.8"/>
     <!-- odom from vins estimator-->
     <!-- <arg name="odometry_topic" value="/plvins_estimator/odometry" /> -->
     <!-- odom from fast-lio -->
     <arg name="odometry_topic" value="/Odometry" />
-    <arg name="convex_corridor_enable" default="false"/>
-    <arg name="convex_corridor_segment_length" default="0.8"/>
-    <arg name="convex_corridor_half_width" default="0.45"/>
-    <arg name="convex_corridor_min_half_width" default="0.25"/>
-    <arg name="convex_corridor_static_sample_ds" default="0.2"/>
-    <arg name="convex_corridor_static_sample_dl" default="0.1"/>
-    <arg name="convex_corridor_pedestrian_radius" default="0.35"/>
-    <arg name="convex_corridor_pedestrian_time_margin" default="0.4"/>
-    <arg name="convex_corridor_start_grace_length" default="0.4"/>
-    <arg name="mpc_corridor_stop_valid_ratio_threshold" default="0.2"/>
+    <arg name="convex_corridor_local_radius" default="3.0"/>
+    <arg name="convex_corridor_max_segment_length" default="1.0"/>
 
     <include file="$(find realsense2_camera)/launch/rs_rgbd.launch"/>
     <include file="$(find plan_manage)/launch/include/fasterlio.launch"/>
     <!-- kindynameic alogoritm -->
     <include file="$(find plan_manage)/launch/include/algorithm.launch">
         <!-- choose planner A*:1 kin:2 -->
-        <arg name="planner" value="2"/>
+        <arg name="planner" value="$(arg planner)"/>
+        <arg name="astar_w_clearance" value="$(arg astar_w_clearance)"/>
+        <arg name="astar_clearance_sigma" value="$(arg astar_clearance_sigma)"/>
         <!-- odom -->
         <arg name="odometry_world" value = "$(arg odometry_topic)"/>
         <!-- using depth and odom -->
@@ -33,16 +31,8 @@
         <arg name="collision_margin" value="0.1"/>
         <arg name="slice_height" value="0.0"/>
         <arg name="kin_horizon" value="5.0"/>
-        <arg name="convex_corridor_enable" value="$(arg convex_corridor_enable)"/>
-        <arg name="convex_corridor_segment_length" value="$(arg convex_corridor_segment_length)"/>
-        <arg name="convex_corridor_half_width" value="$(arg convex_corridor_half_width)"/>
-        <arg name="convex_corridor_min_half_width" value="$(arg convex_corridor_min_half_width)"/>
-        <arg name="convex_corridor_static_sample_ds" value="$(arg convex_corridor_static_sample_ds)"/>
-        <arg name="convex_corridor_static_sample_dl" value="$(arg convex_corridor_static_sample_dl)"/>
-        <arg name="convex_corridor_pedestrian_radius" value="$(arg convex_corridor_pedestrian_radius)"/>
-        <arg name="convex_corridor_pedestrian_time_margin" value="$(arg convex_corridor_pedestrian_time_margin)"/>
-        <arg name="convex_corridor_start_grace_length" value="$(arg convex_corridor_start_grace_length)"/>
-        <arg name="mpc_corridor_stop_valid_ratio_threshold" value="$(arg mpc_corridor_stop_valid_ratio_threshold)"/>
+        <arg name="convex_corridor_local_radius" value="$(arg convex_corridor_local_radius)"/>
+        <arg name="convex_corridor_max_segment_length" value="$(arg convex_corridor_max_segment_length)"/>
         <!-- map size -->
         <arg name="map_size_x" value="100.0"/>
         <arg name="map_size_y" value="50.0"/>

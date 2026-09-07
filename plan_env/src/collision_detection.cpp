@@ -789,7 +789,8 @@ namespace cane_planner
 
     // 修改后的 3D 碰撞检测函数
 bool CollisionDetection::isTraversable(double x, double y) {
-    return getCollisionDistance(Eigen::Vector2d(x, y)) >= margin_;
+    const double distance = getCollisionDistance(Eigen::Vector2d(x, y));
+    return distance > 0.0 && distance >= margin_;
 }
 
     bool CollisionDetection::isTraversable(Eigen::Vector3d pos)
@@ -821,6 +822,61 @@ bool CollisionDetection::isTraversable(double x, double y) {
         return min_dist;
     }
 
+    bool CollisionDetection::getStaticCorridorGrid(
+        const Eigen::Vector2d& lower, const Eigen::Vector2d& upper,
+        Eigen::Vector2d& origin, double& resolution, Eigen::Vector2i& size,
+        std::vector<uint8_t>& blocked, std::string& reason)
+    {
+        blocked.clear();
+        reason = "INVALID_GRID_REQUEST";
+        if (!lower.allFinite() || !upper.allFinite() ||
+            (upper.array() <= lower.array()).any() ||
+            lower.cwiseAbs().maxCoeff() > 10000. || upper.cwiseAbs().maxCoeff() > 10000.) return false;
+        Eigen::Vector2d base, extent;
+        if (static_global_esdf_ready_) {
+            resolution = global_esdf_resolution_;
+            base = global_esdf_origin_.head<2>();
+            extent = resolution * global_esdf_size_.head<2>().cast<double>();
+            if ((global_esdf_size_.array() <= 0).any() ||
+                global_esdf_distance_.size() != static_cast<size_t>(global_esdf_size_.x()) * global_esdf_size_.y() * global_esdf_size_.z()) {
+                reason = "INVALID_ESDF_DATA"; return false;
+            }
+        } else if (static_global_map_ready_) {
+            resolution = static_map_resolution_;
+            base = static_origin_;
+            extent = resolution * static_size_.cast<double>();
+            if ((static_size_.array() <= 0).any() ||
+                static_inflated_.size() != static_cast<size_t>(static_size_.x()) * static_size_.y() ||
+                (static_require_known_region_ && static_known_inflated_.size() != static_inflated_.size())) {
+                reason = "INVALID_STATIC_DATA"; return false;
+            }
+        } else {
+            if (!sdf_map_) { reason = "MAP_UNAVAILABLE"; return false; }
+            Eigen::Vector3d o, e; sdf_map_->getRegion(o, e);
+            base = o.head<2>(); extent = e.head<2>(); resolution = sdf_map_->getResolution();
+        }
+        if (!base.allFinite() || !extent.allFinite() || !std::isfinite(resolution) || resolution < .01) return false;
+        const Eigen::Vector2d lo = lower.cwiseMax(base), hi = upper.cwiseMin(base + extent);
+        if ((hi.array() <= lo.array()).any()) { reason = "OUT_OF_MAP"; return false; }
+        const Eigen::Vector2i first = ((lo-base)/resolution).array().floor().cast<int>();
+        const Eigen::Vector2i last = ((hi-base)/resolution).array().ceil().cast<int>();
+        size = last-first; origin = base+resolution*first.cast<double>();
+        if ((size.array() <= 0).any() || resolution*size.maxCoeff()>100. ||
+            static_cast<int64_t>(size.x())*size.y()>1000000) { reason = "GRID_BUDGET"; return false; }
+        blocked.assign(static_cast<size_t>(size.x())*size.y(), 1);
+        for (int y=0; y<size.y(); ++y) for (int x=0; x<size.x(); ++x) {
+            const Eigen::Vector2d p = origin+resolution*Eigen::Vector2d(x+.5,y+.5);
+            // All selected queries use floor-indexed cells, not interpolation.
+            // A center identifies an entire aligned XY bin; blocked bins become
+            // full convex obstacles. Preserve each backend's margins, vertical
+            // samples and unknown/model classification exactly.
+            const bool free = (static_global_esdf_ready_ || static_global_map_ready_)
+                ? isStaticTraversable(p.x(), p.y()) : isTraversable(p.x(), p.y());
+            blocked[y*size.x()+x] = free ? 0 : 1;
+        }
+        reason = "OK"; return true;
+    }
+
     bool CollisionDetection::isStaticTraversable(double x, double y) const
     {
         if (static_global_esdf_ready_)
@@ -835,7 +891,7 @@ bool CollisionDetection::isTraversable(double x, double y) {
                     return false;
                 min_dist = std::min(min_dist, static_cast<double>(global_esdf_distance_[globalToAddress(id)]));
             }
-            return min_dist >= global_esdf_safe_distance_;
+            return min_dist > 0.0 && min_dist >= global_esdf_safe_distance_;
         }
         if (!static_global_map_ready_)
             return true;

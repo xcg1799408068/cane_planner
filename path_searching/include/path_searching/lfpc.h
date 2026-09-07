@@ -25,6 +25,7 @@ namespace cane_planner
     class LFPC
     {
     private:
+        friend class StaticMpcTestAccess;
         char support_leg_;
         double t_sup_, delta_t_;
         double h_;

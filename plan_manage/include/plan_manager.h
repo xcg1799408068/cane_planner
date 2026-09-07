@@ -28,6 +28,7 @@
 #include <path_searching/dynamic_walking_corridor.h>
 #include <path_searching/timed_trajectory_builder.h>
 #include <path_searching/convex_corridor.h>
+#include <path_searching/corridor_failure_snapshot.h>
 #include <path_searching/path_smoother.h>
 #include <path_searching/lfpc.h>
 #include <plan_env/collision_detection.h>
@@ -38,6 +39,7 @@ namespace cane_planner
     class PlannerManager
     {
     private:
+        friend class SimOdomTestAccess;
         /* data */
         enum FSM_STATE
         {
@@ -67,6 +69,8 @@ namespace cane_planner
         unique_ptr<KinematicMppiController> kinematic_mppi_controller_;
         unique_ptr<DynamicWalkingCorridor> dynamic_walking_corridor_;
         unique_ptr<ConvexCorridor> convex_corridor_;
+        CorridorFailureCapture corridor_failure_capture_;
+        std::string corridor_failure_directory_;
         BsplineOptimizer::Ptr bspline_optimizers_;
         NonUniformBspline::Ptr bspline_init_;
 
@@ -98,13 +102,13 @@ namespace cane_planner
         std::vector<Eigen::Vector3d> mpc_feet_path_;
         std::vector<Eigen::Vector3d> mpc_step_path_;
 
-        // 全局路径层 waypoints (A* → MPC 追踪)
-        std::vector<Eigen::Vector2d> global_path_dense_;
+        // Authoritative raw A* polyline for planner 3; planner 4 keeps its
+        // legacy sparse/smoothed waypoint adapter in the same storage.
         std::vector<Eigen::Vector2d> global_waypoints_;
         size_t global_wp_idx_;
         double global_wp_spacing_ = 1.0;
         double global_wp_arrival_radius_ = 0.1;
-        bool global_wp_smoothing_enable_ = true;
+        bool global_wp_smoothing_enable_ = false;
         double global_wp_smoothing_radius_ = 0.45;
         double global_wp_smoothing_min_turn_angle_ = 0.55;
         int global_wp_smoothing_samples_ = 4;
@@ -119,10 +123,6 @@ namespace cane_planner
         bool mpc_debug_enable_ = true;
         bool mpc_stop_advice_enable_ = true;
         bool mpc_stop_advice_enforce_ = true;
-        double mpc_stop_hold_time_ = 0.8;
-        double mpc_stop_release_clear_time_ = 0.5;
-        bool mpc_corridor_stop_enable_ = true;
-        double mpc_corridor_stop_valid_ratio_threshold_ = 0.2;
         bool mpc_interaction_enable_ = false;
         bool mpc_interaction_enable_yield_ = false;
         double mpc_interaction_st_horizon_ = 4.0;
@@ -138,15 +138,9 @@ namespace cane_planner
         double mpc_interaction_cpa_horizon_ = 3.0;
         double mpc_interaction_cpa_dist_ = 0.8;
         bool mpc_interaction_use_cpa_check_ = true;
-        double mpc_interaction_stop_release_clear_time_ = 0.15;
-        double mpc_interaction_post_yield_grace_time_ = 0.6;
         double mpc_nominal_al_ = 0.40;
         double lfpc_t_sup_ = 0.35;
         double lfpc_delta_t_ = 0.07;
-        bool mpc_stop_state_active_ = false;
-        ros::Time mpc_stop_enter_time_;
-        ros::Time mpc_stop_clear_since_;
-        std::string mpc_latched_stop_reason_ = "OK";
 
         // 仿真路径推进 (planner=1,2 沿规划路径移动 odom)
         std::vector<Eigen::Vector2d> sim_path_;
@@ -157,7 +151,6 @@ namespace cane_planner
         enum MpcSimState { MPC_IDLE, MPC_ACTIVE, MPC_DONE };
         enum InteractionScene { SCENE_NONE = 0, SCENE_CROSSING = 1 };
         enum InteractionMode { MODE_CONTINUE = 0, MODE_YIELD = 2 };
-        std::vector<Eigen::Vector3d> last_corridor_feasible_mppi_path_;
         struct InteractionDebug
         {
             bool candidate_valid = false;
@@ -245,7 +238,7 @@ namespace cane_planner
         void mpcSimInit();
         bool mpcSimStep();
         bool kinematicMppiSimStep();
-        void publishSimOdom();
+        void publishSimOdom(bool stopped = false);
         void generateGlobalWaypoints();
         void reanchorWaypoint(const Eigen::Vector2d& robot_pos);
         void publishFovRange();
@@ -284,10 +277,7 @@ namespace cane_planner
                                              const Eigen::Vector3d& current_pose) const;
         void publishWalkingCorridor(const DynamicWalkingCorridor::Result& result);
         ConvexCorridor::Result updateAndPublishConvexCorridor(
-                                             const Eigen::Vector3d& current_pose,
-                                             const std::vector<Eigen::Vector3d>& obs_pos,
-                                             const std::vector<Eigen::Vector3d>& obs_vel,
-                                             const std::vector<Eigen::Vector3d>& obs_size);
+                                             const Eigen::Vector3d& current_pose);
         void publishConvexCorridor(const ConvexCorridor::Result& result);
         const char* interactionSceneName(InteractionScene scene) const;
         const char* interactionModeName(InteractionMode mode) const;
