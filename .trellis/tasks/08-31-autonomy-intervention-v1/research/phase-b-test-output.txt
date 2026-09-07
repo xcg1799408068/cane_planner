@@ -1,0 +1,278 @@
+==> Expanding alias 'run_tests' from 'catkin run_tests path_searching --workspace /home/xcg/ws' to 'catkin test path_searching --workspace /home/xcg/ws'
+Starting >>> path_searching                                                    
+[test 0.1 s] [0/1 complete] [1/12 jobs] [0 queued] [path_searching:make - 0.1] [test 0.2 s] [0/1 complete] [1/12 jobs] [0 queued] [path_searching:make (50... [test 0.3 s] [0/1 complete] [1/12 jobs] [0 queued] [path_searching:make (50... [test 0.4 s] [0/1 complete] [1/12 jobs] [0 queued] [path_searching:make (50... [test 0.5 s] [0/1 complete] [1/12 jobs] [0 queued] [path_searching:make (50... [test 0.6 s] [0/1 complete] [1/12 jobs] [0 queued] [path_searching:make (52... [test 0.7 s] [0/1 complete] [1/12 jobs] [0 queued] [path_searching:make (55... [test 0.8 s] [0/1 complete] [1/12 jobs] [0 queued] [path_searching:make (55... [test 0.9 s] [0/1 complete] [1/12 jobs] [0 queued] [path_searching:make (55... [test 1.0 s] [0/1 complete] [1/12 jobs] [0 queued] [path_searching:make (58... [test 1.1 s] [0/1 complete] [1/12 jobs] [0 queued] [path_searching:make (61... [test 1.2 s] [0/1 complete] [1/12 jobs] [0 queued] [path_searching:make (61... [test 1.3 s] [0/1 complete] [1/12 jobs] [0 queued] [path_searching:make (61... [test 1.4 s] [0/1 complete] [1/12 jobs] [0 queued] [path_searching:make (67... [test 1.5 s] [0/1 complete] [1/12 jobs] [0 queued] [path_searching:make (67... [test 1.6 s] [0/1 complete] [1/12 jobs] [0 queued] [path_searching:make (70... [test 1.7 s] [0/1 complete] [1/12 jobs] [0 queued] [path_searching:make (73... [test 1.8 s] [0/1 complete] [1/12 jobs] [0 queued] [path_searching:make (73... [test 1.9 s] [0/1 complete] [1/12 jobs] [0 queued] [path_searching:make (73... [test 2.0 s] [0/1 complete] [1/12 jobs] [0 queued] [path_searching:make (76... [test 2.1 s] [0/1 complete] [1/12 jobs] [0 queued] [path_searching:make (79... [test 2.2 s] [0/1 complete] [1/12 jobs] [0 queued] [path_searching:make (79... [test 2.3 s] [0/1 complete] [1/12 jobs] [0 queued] [path_searching:make (79... [test 2.4 s] [0/1 complete] [1/12 jobs] [0 queued] [path_searching:make (85... [test 2.5 s] [0/1 complete] [1/12 jobs] [0 queued] [path_searching:make (85... [test 2.6 s] [0/1 complete] [1/12 jobs] [0 queued] [path_searching:make (85... [test 2.7 s] [0/1 complete] [1/12 jobs] [0 queued] [path_searching:make (85... [test 2.8 s] [0/1 complete] [1/12 jobs] [0 queued] [path_searching:make (94... [test 2.9 s] [0/1 complete] [1/12 jobs] [0 queued] [path_searching:make (97... [test 3.0 s] [0/1 complete] [1/12 jobs] [0 queued] [path_searching:make (97... [test 3.1 s] [0/1 complete] [1/12 jobs] [0 queued] [path_searching:make (97... [test 3.2 s] [0/1 complete] [1/12 jobs] [0 queued] [path_searching:make (10... [test 3.3 s] [0/1 complete] [1/12 jobs] [0 queued] [path_searching:make (10... [test 3.4 s] [0/1 complete] [1/12 jobs] [0 queued] [path_searching:make (10... [test 3.5 s] [0/1 complete] [1/12 jobs] [0 queued] [path_searching:make (10... [test 3.6 s] [0/1 complete] [1/12 jobs] [0 queued] [path_searching:make (10... [test 3.7 s] [0/1 complete] [1/12 jobs] [0 queued] [path_searching:make (10... [test 3.8 s] [0/1 complete] [1/12 jobs] [0 queued] [path_searching:make (10... [test 3.9 s] [0/1 complete] [1/12 jobs] [0 queued] [path_searching:make (10... Output << path_searching:make /home/xcg/ws/logs/path_searching/test.make.175.log
+-- run_tests.py: execute commands
+  /home/xcg/ws/devel/.private/path_searching/lib/path_searching/test_path_smoother --gtest_output=xml:/home/xcg/ws/build/path_searching/test_results/path_searching/gtest-test_path_smoother.xml
+[0;32m[==========] [mRunning 2 tests from 1 test suite.
+[0;32m[----------] [mGlobal test environment set-up.
+[0;32m[----------] [m2 tests from PathSmoother
+[0;32m[ RUN      ] [mPathSmoother.RoundsSharpCornerWhenTraversable
+[0;32m[       OK ] [mPathSmoother.RoundsSharpCornerWhenTraversable (0 ms)
+[0;32m[ RUN      ] [mPathSmoother.KeepsOriginalCornerWhenRoundedSamplesAreBlocked
+[0;32m[       OK ] [mPathSmoother.KeepsOriginalCornerWhenRoundedSamplesAreBlocked (0 ms)
+[0;32m[----------] [m2 tests from PathSmoother (0 ms total)
+
+[0;32m[----------] [mGlobal test environment tear-down
+[0;32m[==========] [m2 tests from 1 test suite ran. (0 ms total)
+[0;32m[  PASSED  ] [m2 tests.
+-- run_tests.py: execute commands
+  /home/xcg/ws/devel/.private/path_searching/lib/path_searching/test_mpc_no_assistance_rollout --gtest_output=xml:/home/xcg/ws/build/path_searching/test_results/path_searching/gtest-test_mpc_no_assistance_rollout.xml
+[0;32m[==========] [mRunning 7 tests from 1 test suite.
+[0;32m[----------] [mGlobal test environment set-up.
+[0;32m[----------] [m7 tests from MpcNoAssistanceRollout
+[0;32m[ RUN      ] [mMpcNoAssistanceRollout.PreservesHumanHeadingTrendAndSourceState
+[0;32m[       OK ] [mMpcNoAssistanceRollout.PreservesHumanHeadingTrendAndSourceState (0 ms)
+[0;32m[ RUN      ] [mMpcNoAssistanceRollout.FullHorizonSafeIsRightCensoredAtEvaluationHorizon
+[0;32m[       OK ] [mMpcNoAssistanceRollout.FullHorizonSafeIsRightCensoredAtEvaluationHorizon (0 ms)
+[0;32m[ RUN      ] [mMpcNoAssistanceRollout.ReportsExactKthSubstepAndLaterStepExitTimes
+[0;32m[       OK ] [mMpcNoAssistanceRollout.ReportsExactKthSubstepAndLaterStepExitTimes (0 ms)
+[0;32m[ RUN      ] [mMpcNoAssistanceRollout.DistinguishesShortenedAndMissingCoverage
+[0;32m[       OK ] [mMpcNoAssistanceRollout.DistinguishesShortenedAndMissingCoverage (0 ms)
+[0;32m[ RUN      ] [mMpcNoAssistanceRollout.IsIndependentOfSampleCountSnapshotAndJGuide
+[0;32m[       OK ] [mMpcNoAssistanceRollout.IsIndependentOfSampleCountSnapshotAndJGuide (0 ms)
+[0;32m[ RUN      ] [mMpcNoAssistanceRollout.RepeatedCallsIgnoreRngAndRemainDeterministic
+[0;32m[       OK ] [mMpcNoAssistanceRollout.RepeatedCallsIgnoreRngAndRemainDeterministic (0 ms)
+[0;32m[ RUN      ] [mMpcNoAssistanceRollout.ReportsDynamicObstacleExitAtFirstIntersectingSample
+[0;32m[       OK ] [mMpcNoAssistanceRollout.ReportsDynamicObstacleExitAtFirstIntersectingSample (0 ms)
+[0;32m[----------] [m7 tests from MpcNoAssistanceRollout (0 ms total)
+
+[0;32m[----------] [mGlobal test environment tear-down
+[0;32m[==========] [m7 tests from 1 test suite ran. (0 ms total)
+[0;32m[  PASSED  ] [m7 tests.
+-- run_tests.py: execute commands
+  /home/xcg/ws/devel/.private/path_searching/lib/path_searching/test_human_safety_evaluator --gtest_output=xml:/home/xcg/ws/build/path_searching/test_results/path_searching/gtest-test_human_safety_evaluator.xml
+[0;32m[==========] [mRunning 20 tests from 3 test suites.
+[0;32m[----------] [mGlobal test environment set-up.
+[0;32m[----------] [m13 tests from HumanSafetyEvaluator
+[0;32m[ RUN      ] [mHumanSafetyEvaluator.StrictHelpersDistinguishCoverageAndSignedMargin
+[0;32m[       OK ] [mHumanSafetyEvaluator.StrictHelpersDistinguishCoverageAndSignedMargin (0 ms)
+[0;32m[ RUN      ] [mHumanSafetyEvaluator.ComputesMetricsAndFallbackSelection
+[0;32m[       OK ] [mHumanSafetyEvaluator.ComputesMetricsAndFallbackSelection (0 ms)
+[0;32m[ RUN      ] [mHumanSafetyEvaluator.StaticallyBlockedCandidatesDoNotCountAsSafe
+[0;32m[       OK ] [mHumanSafetyEvaluator.StaticallyBlockedCandidatesDoNotCountAsSafe (0 ms)
+[0;32m[ RUN      ] [mHumanSafetyEvaluator.EveryCandidateBlockedCollapsesEtaAndAutonomy
+[0;32m[       OK ] [mHumanSafetyEvaluator.EveryCandidateBlockedCollapsesEtaAndAutonomy (0 ms)
+[0;32m[ RUN      ] [mHumanSafetyEvaluator.DisablingTheNativeCheckRestoresCorridorOnlyJudgement
+[0;32m[       OK ] [mHumanSafetyEvaluator.DisablingTheNativeCheckRestoresCorridorOnlyJudgement (0 ms)
+[0;32m[ RUN      ] [mHumanSafetyEvaluator.NativeValidityIsIgnoredWhenItsSizeDoesNotMatch
+[0;32m[       OK ] [mHumanSafetyEvaluator.NativeValidityIsIgnoredWhenItsSizeDoesNotMatch (0 ms)
+[0;32m[ RUN      ] [mHumanSafetyEvaluator.GuidancePrefersTheCandidateNearerTheCentreline
+[0;32m[       OK ] [mHumanSafetyEvaluator.GuidancePrefersTheCandidateNearerTheCentreline (0 ms)
+[0;32m[ RUN      ] [mHumanSafetyEvaluator.GuidanceStillSelectsWithoutComPaths
+[0;32m[       OK ] [mHumanSafetyEvaluator.GuidanceStillSelectsWithoutComPaths (0 ms)
+[0;32m[ RUN      ] [mHumanSafetyEvaluator.AutonomyTimeIsNormalisedByTheOptionsThatExist
+[0;32m[       OK ] [mHumanSafetyEvaluator.AutonomyTimeIsNormalisedByTheOptionsThatExist (0 ms)
+[0;32m[ RUN      ] [mHumanSafetyEvaluator.AutonomyTimeIsZeroWhenNothingIsViable
+[0;32m[       OK ] [mHumanSafetyEvaluator.AutonomyTimeIsZeroWhenNothingIsViable (0 ms)
+[0;32m[ RUN      ] [mHumanSafetyEvaluator.AggregatesLateralMarginAndMarginArgmin
+[0;32m[       OK ] [mHumanSafetyEvaluator.AggregatesLateralMarginAndMarginArgmin (0 ms)
+[0;32m[ RUN      ] [mHumanSafetyEvaluator.HeadingSetpointIsAnAbsoluteBearingNotAPerStepIncrement
+[0;32m[       OK ] [mHumanSafetyEvaluator.HeadingSetpointIsAnAbsoluteBearingNotAPerStepIncrement (0 ms)
+[0;32m[ RUN      ] [mHumanSafetyEvaluator.HeadingSetpointUsesTheWholePathWhenShorterThanTheLookahead
+[0;32m[       OK ] [mHumanSafetyEvaluator.HeadingSetpointUsesTheWholePathWhenShorterThanTheLookahead (0 ms)
+[0;32m[----------] [m13 tests from HumanSafetyEvaluator (0 ms total)
+
+[0;32m[----------] [m4 tests from InterventionPolicy
+[0;32m[ RUN      ] [mInterventionPolicy.RequiresSustainedDangerAndConservativeRecovery
+[0;32m[       OK ] [mInterventionPolicy.RequiresSustainedDangerAndConservativeRecovery (0 ms)
+[0;32m[ RUN      ] [mInterventionPolicy.B0RemainsUnassisted
+[0;32m[       OK ] [mInterventionPolicy.B0RemainsUnassisted (0 ms)
+[0;32m[ RUN      ] [mInterventionPolicy.B2StopPriorityIsNotOverwrittenByContinuousGuidance
+[0;32m[       OK ] [mInterventionPolicy.B2StopPriorityIsNotOverwrittenByContinuousGuidance (0 ms)
+[0;32m[ RUN      ] [mInterventionPolicy.HoldsGuidanceCueLongEnoughToBeActedOn
+[0;32m[       OK ] [mInterventionPolicy.HoldsGuidanceCueLongEnoughToBeActedOn (0 ms)
+[0;32m[----------] [m4 tests from InterventionPolicy (0 ms total)
+
+[0;32m[----------] [m3 tests from TimeMarginTrigger
+[0;32m[ RUN      ] [mTimeMarginTrigger.ExactCensoredUnknownAndSingleLatchSemantics
+[0;32m[       OK ] [mTimeMarginTrigger.ExactCensoredUnknownAndSingleLatchSemantics (0 ms)
+[0;32m[ RUN      ] [mTimeMarginTrigger.TargetLossAndUnrecoverableClearStaleCue
+[0;32m[       OK ] [mTimeMarginTrigger.TargetLossAndUnrecoverableClearStaleCue (0 ms)
+[0;32m[ RUN      ] [mTimeMarginTrigger.DynamicTriggerIsIndependentOfLegacyFrameMetrics
+[0;32m[       OK ] [mTimeMarginTrigger.DynamicTriggerIsIndependentOfLegacyFrameMetrics (0
+ms)
+[0;32m[----------] [m3 tests from TimeMarginTrigger (0 ms total)
+
+[0;32m[----------] [mGlobal test environment tear-down
+[0;32m[==========] [m20 tests from 3 test suites ran. (0 ms total)
+[0;32m[  PASSED  ] [m20 tests.
+-- run_tests.py: execute commands
+  /home/xcg/ws/devel/.private/path_searching/lib/path_searching/test_timed_trajectory --gtest_output=xml:/home/xcg/ws/build/path_searching/test_results/path_searching/gtest-test_timed_trajectory.xml
+[0;32m[==========] [mRunning 8 tests from 1 test suite.
+[0;32m[----------] [mGlobal test environment set-up.
+[0;32m[----------] [m8 tests from TimedTrajectoryBuilder
+[0;32m[ RUN      ] [mTimedTrajectoryBuilder.PrefersPreviousMppiBestPath
+[0;32m[       OK ] [mTimedTrajectoryBuilder.PrefersPreviousMppiBestPath (0 ms)
+[0;32m[ RUN      ] [mTimedTrajectoryBuilder.UsesPreviousMppiEvenWhenItLeavesGlobalReference
+[0;32m[       OK ] [mTimedTrajectoryBuilder.UsesPreviousMppiEvenWhenItLeavesGlobalReference (0 ms)
+[0;32m[ RUN      ] [mTimedTrajectoryBuilder.FallsBackToAstarBootstrapWithDistanceTiming
+[0;32m[       OK ] [mTimedTrajectoryBuilder.FallsBackToAstarBootstrapWithDistanceTiming (0 ms)
+[0;32m[ RUN      ] [mTimedTrajectoryBuilder.PrefersGlobalReferenceWhenAsked
+[0;32m[       OK ] [mTimedTrajectoryBuilder.PrefersGlobalReferenceWhenAsked (0 ms)
+[0;32m[ RUN      ] [mTimedTrajectoryBuilder.FallsBackToPreviousMppiWhenGlobalReferenceIsUnusable
+[0;32m[       OK ] [mTimedTrajectoryBuilder.FallsBackToPreviousMppiWhenGlobalReferenceIsUnusable (0 ms)
+[0;32m[ RUN      ] [mTimedTrajectoryBuilder.KeepsPreviousMppiWhileItStillDescribesTheRoute
+[0;32m[       OK ] [mTimedTrajectoryBuilder.KeepsPreviousMppiWhileItStillDescribesTheRoute (0 ms)
+[0;32m[ RUN      ] [mTimedTrajectoryBuilder.SwitchesToRouteWhenThePredictionHasWandered
+[0;32m[       OK ] [mTimedTrajectoryBuilder.SwitchesToRouteWhenThePredictionHasWandered (0 ms)
+[0;32m[ RUN      ] [mTimedTrajectoryBuilder.DeviationIsMeasuredOnlyWhereTheRouteReaches
+[0;32m[       OK ] [mTimedTrajectoryBuilder.DeviationIsMeasuredOnlyWhereTheRouteReaches (0 ms)
+[0;32m[----------] [m8 tests from TimedTrajectoryBuilder (0 ms total)
+
+[0;32m[----------] [mGlobal test environment tear-down
+[0;32m[==========] [m8 tests from 1 test suite ran. (0 ms total)
+[0;32m[  PASSED  ] [m8 tests.
+-- run_tests.py: execute commands
+  /home/xcg/ws/devel/.private/path_searching/lib/path_searching/test_convex_corridor --gtest_output=xml:/home/xcg/ws/build/path_searching/test_results/path_searching/gtest-test_convex_corridor.xml
+[0;32m[==========] [mRunning 3 tests from 1 test suite.
+[0;32m[----------] [mGlobal test environment set-up.
+[0;32m[----------] [m3 tests from ConvexCorridor
+[0;32m[ RUN      ] [mConvexCorridor.ContainsPointInsideRectangle
+[0;32m[       OK ] [mConvexCorridor.ContainsPointInsideRectangle (0 ms)
+[0;32m[ RUN      ] [mConvexCorridor.BuildsStaticSegmentsInsideTraversableBand
+[0;32m[       OK ] [mConvexCorridor.BuildsStaticSegmentsInsideTraversableBand (0 ms)
+[0;32m[ RUN      ] [mConvexCorridor.ClipsSegmentAwayFromPredictedPedestrian
+[0;32m[       OK ] [mConvexCorridor.ClipsSegmentAwayFromPredictedPedestrian (0 ms)
+[0;32m[----------] [m3 tests from ConvexCorridor (0 ms total)
+
+[0;32m[----------] [mGlobal test environment tear-down
+[0;32m[==========] [m3 tests from 1 test suite ran. (1 ms total)
+[0;32m[  PASSED  ] [m3 tests.
+-- run_tests.py: execute commands
+  /home/xcg/ws/devel/.private/path_searching/lib/path_searching/test_dynamic_walking_corridor --gtest_output=xml:/home/xcg/ws/build/path_searching/test_results/path_searching/gtest-test_dynamic_walking_corridor.xml
+[0;32m[==========] [mRunning 18 tests from 1 test suite.
+[0;32m[----------] [mGlobal test environment set-up.
+[0;32m[----------] [m18 tests from DynamicWalkingCorridor
+[0;32m[ RUN      ] [mDynamicWalkingCorridor.SelectsBehindSideForCrossingPedestrian
+[0;32m[       OK ] [mDynamicWalkingCorridor.SelectsBehindSideForCrossingPedestrian (0 ms)
+[0;32m[ RUN      ] [mDynamicWalkingCorridor.ReportsInfeasibleWhenAllCandidateCorridorsBlocked
+[0;32m[       OK ] [mDynamicWalkingCorridor.ReportsInfeasibleWhenAllCandidateCorridorsBlocked (0 ms)
+[0;32m[ RUN      ] [mDynamicWalkingCorridor.ComputesOutsideDistanceForCandidateRectangle
+[0;32m[       OK ] [mDynamicWalkingCorridor.ComputesOutsideDistanceForCandidateRectangle (0 ms)
+[0;32m[ RUN      ] [mDynamicWalkingCorridor.ComputesOutsideDistanceForPolylineCorridor
+[0;32m[       OK ] [mDynamicWalkingCorridor.ComputesOutsideDistanceForPolylineCorridor (0 ms)
+[0;32m[ RUN      ] [mDynamicWalkingCorridor.TruncatedPolylineCorridorIgnoresForwardOverrun
+[0;32m[       OK ] [mDynamicWalkingCorridor.TruncatedPolylineCorridorIgnoresForwardOverrun (0 ms)
+[0;32m[ RUN      ] [mDynamicWalkingCorridor.GeneratesCandidatesAlongReferencePolyline
+[0;32m[       OK ] [mDynamicWalkingCorridor.GeneratesCandidatesAlongReferencePolyline (0 ms)
+[0;32m[ RUN      ] [mDynamicWalkingCorridor.GeneratesCandidatesAlongTimedNominalTrajectory
+[0;32m[       OK ] [mDynamicWalkingCorridor.GeneratesCandidatesAlongTimedNominalTrajectory (0 ms)
+[0;32m[ RUN      ] [mDynamicWalkingCorridor.ExposesSelectedTimedCorridorFromNominalTrajectory
+[0;32m[       OK ] [mDynamicWalkingCorridor.ExposesSelectedTimedCorridorFromNominalTrajectory (0 ms)
+[0;32m[ RUN      ] [mDynamicWalkingCorridor.BuildsSparseOverlappingTimedCorridorCover
+[0;32m[       OK ] [mDynamicWalkingCorridor.BuildsSparseOverlappingTimedCorridorCover (0 ms)
+[0;32m[ RUN      ] [mDynamicWalkingCorridor.TimedCorridorSegmentsExposeConvexCells
+[0;32m[       OK ] [mDynamicWalkingCorridor.TimedCorridorSegmentsExposeConvexCells (0 ms)
+[0;32m[ RUN      ] [mDynamicWalkingCorridor.SplitsDynamicallyBlockedTimedSegments
+[0;32m[       OK ] [mDynamicWalkingCorridor.SplitsDynamicallyBlockedTimedSegments (0 ms)
+[0;32m[ RUN      ] [mDynamicWalkingCorridor.UsesNominalTrajectoryTimeForDynamicBlocking
+[0;32m[       OK ] [mDynamicWalkingCorridor.UsesNominalTrajectoryTimeForDynamicBlocking (0 ms)
+[0;32m[ RUN      ] [mDynamicWalkingCorridor.ExposesDynamicPedestriansAsTimedConvexFootprints
+[0;32m[       OK ] [mDynamicWalkingCorridor.ExposesDynamicPedestriansAsTimedConvexFootprints (0 ms)
+[0;32m[ RUN      ] [mDynamicWalkingCorridor.IterativeFiriCellExpandsTowardDynamicObstacleBoundary
+[0;32m[       OK ] [mDynamicWalkingCorridor.IterativeFiriCellExpandsTowardDynamicObstacleBoundary (0 ms)
+[0;32m[ RUN      ] [mDynamicWalkingCorridor.HumanCaneFootprintErodesConvexCell
+[0;32m[       OK ] [mDynamicWalkingCorridor.HumanCaneFootprintErodesConvexCell (0 ms)
+[0;32m[ RUN      ] [mDynamicWalkingCorridor.KeepsCenterCorridorAsSingleDefaultCandidate
+[0;32m[       OK ] [mDynamicWalkingCorridor.KeepsCenterCorridorAsSingleDefaultCandidate (0 ms)
+[0;32m[ RUN      ] [mDynamicWalkingCorridor.DoesNotBlockForFarFutureSpatialOccupancy
+[0;32m[       OK ] [mDynamicWalkingCorridor.DoesNotBlockForFarFutureSpatialOccupancy (0 ms)
+[0;32m[ RUN      ] [mDynamicWalkingCorridor.OptimizesCenterlineIntoNearbyStaticFreeBand
+[0;32m[       OK ] [mDynamicWalkingCorridor.OptimizesCenterlineIntoNearbyStaticFreeBand (0 ms)
+[0;32m[----------] [m18 tests from DynamicWalkingCorridor (0 ms total)
+
+[0;32m[----------] [mGlobal test environment tear-down
+[0;32m[==========] [m18 tests from 1 test suite ran. (0 ms total)
+[0;32m[  PASSED  ] [m18 tests.
+-- run_tests.py: execute commands
+  /home/xcg/ws/devel/.private/path_searching/lib/path_searching/test_timed_walking_corridor --gtest_output=xml:/home/xcg/ws/build/path_searching/test_results/path_searching/gtest-test_timed_walking_corridor.xml
+[0;32m[==========] [mRunning 14 tests from 2 test suites.
+[0;32m[----------] [mGlobal test environment set-up.
+[0;32m[----------] [m8 tests from TimedWalkingCorridor
+[0;32m[ RUN      ] [mTimedWalkingCorridor.TracksTimeRangeAndSegmentLookup
+[0;32m[       OK ] [mTimedWalkingCorridor.TracksTimeRangeAndSegmentLookup (0 ms)
+[0;32m[ RUN      ] [mTimedWalkingCorridor.ComputesOutsideDistanceAtSegmentTime
+[0;32m[       OK ] [mTimedWalkingCorridor.ComputesOutsideDistanceAtSegmentTime (0 ms)
+[0;32m[ RUN      ] [mTimedWalkingCorridor.HalfPlanesOverrideCenterlineBandDistance
+[0;32m[       OK ] [mTimedWalkingCorridor.HalfPlanesOverrideCenterlineBandDistance (0 ms)
+[0;32m[ RUN      ] [mTimedWalkingCorridor.AllowsAdjacentConvexCellContinuityAtTurns
+[0;32m[       OK ] [mTimedWalkingCorridor.AllowsAdjacentConvexCellContinuityAtTurns (0 ms)
+[0;32m[ RUN      ] [mTimedWalkingCorridor.SignedMarginGradesTheInsideOfTheCell
+[0;32m[       OK ] [mTimedWalkingCorridor.SignedMarginGradesTheInsideOfTheCell (0 ms)
+[0;32m[ RUN      ] [mTimedWalkingCorridor.SignedMarginFoldsInDynamicPenetration
+[0;32m[       OK ] [mTimedWalkingCorridor.SignedMarginFoldsInDynamicPenetration (0 ms)
+[0;32m[ RUN      ] [mTimedWalkingCorridor.LateralMarginIgnoresEntryAndExitFaces
+[0;32m[       OK ] [mTimedWalkingCorridor.LateralMarginIgnoresEntryAndExitFaces (0 ms)
+[0;32m[ RUN      ] [mTimedWalkingCorridor.MarginsStayPositiveWithNonPenetratedObstacles
+[0;32m[       OK ] [mTimedWalkingCorridor.MarginsStayPositiveWithNonPenetratedObstacles (0 ms)
+[0;32m[----------] [m8 tests from TimedWalkingCorridor (0 ms total)
+
+[0;32m[----------] [m6 tests from TrajectoryFeasibility
+[0;32m[ RUN      ] [mTrajectoryFeasibility.EncodesGoStopFromMppiFeasibleTrajectory
+[0;32m[       OK ] [mTrajectoryFeasibility.EncodesGoStopFromMppiFeasibleTrajectory (0 ms)
+[0;32m[ RUN      ] [mTrajectoryFeasibility.CorridorEvaluationOverridesGenericValidity
+[0;32m[       OK ] [mTrajectoryFeasibility.CorridorEvaluationOverridesGenericValidity (0 ms)
+[0;32m[ RUN      ] [mTrajectoryFeasibility.ReportsNoFeasibleTrajectoryStopReason
+[0;32m[       OK ] [mTrajectoryFeasibility.ReportsNoFeasibleTrajectoryStopReason (0 ms)
+[0;32m[ RUN      ] [mTrajectoryFeasibility.SelectsBestInsideCorridorWhenAvailable
+[0;32m[       OK ] [mTrajectoryFeasibility.SelectsBestInsideCorridorWhenAvailable (0 ms)
+[0;32m[ RUN      ] [mTrajectoryFeasibility.AllowsBoundedCorridorDeviation
+[0;32m[       OK ] [mTrajectoryFeasibility.AllowsBoundedCorridorDeviation (0 ms)
+[0;32m[ RUN      ] [mTrajectoryFeasibility.FallsBackToBestFiniteCostWhenNoCorridorFeasibleSample
+[0;32m[       OK ] [mTrajectoryFeasibility.FallsBackToBestFiniteCostWhenNoCorridorFeasibleSample (0 ms)
+[0;32m[----------] [m6 tests from TrajectoryFeasibility (0 ms total)
+
+[0;32m[----------] [mGlobal test environment tear-down
+[0;32m[==========] [m14 tests from 2 test suites ran. (0 ms total)
+[0;32m[  PASSED  ] [m14 tests.
+-- run_tests.py: execute commands
+  /home/xcg/ws/devel/.private/path_searching/lib/path_searching/test_intervention_response --gtest_output=xml:/home/xcg/ws/build/path_searching/test_results/path_searching/gtest-test_intervention_response.xml
+[0;32m[==========] [mRunning 8 tests from 1 test suite.
+[0;32m[----------] [mGlobal test environment set-up.
+[0;32m[----------] [m8 tests from InterventionResponse
+[0;32m[ RUN      ] [mInterventionResponse.B0NeverAssistsOrStops
+[0;32m[       OK ] [mInterventionResponse.B0NeverAssistsOrStops (0 ms)
+[0;32m[ RUN      ] [mInterventionResponse.DelayRateCapReleaseStopAndReset
+[0;32m[       OK ] [mInterventionResponse.DelayRateCapReleaseStopAndReset (0 ms)
+[0;32m[ RUN      ] [mInterventionResponse.B1HysteresisNeedsCoverage
+[0;32m[       OK ] [mInterventionResponse.B1HysteresisNeedsCoverage (0 ms)
+[0;32m[ RUN      ] [mInterventionResponse.AssistedMethodsShareNumericalResponse
+[0;32m[       OK ] [mInterventionResponse.AssistedMethodsShareNumericalResponse (0 ms)
+[0;32m[ RUN      ] [mInterventionResponse.StopRequestSuppressesHeadingBeforeDelayMatures
+[0;32m[       OK ] [mInterventionResponse.StopRequestSuppressesHeadingBeforeDelayMatures (0 ms)
+[0;32m[ RUN      ] [mInterventionResponse.TurnEstimatorMatchesRuntimeRecurrenceAndDoesNotMutateState
+[0;32m[       OK ] [mInterventionResponse.TurnEstimatorMatchesRuntimeRecurrenceAndDoesNotMutateState (0 ms)
+[0;32m[ RUN      ] [mInterventionResponse.TurnEstimatorHandlesWrapLimitsAndFailures
+[0;32m[       OK ] [mInterventionResponse.TurnEstimatorHandlesWrapLimitsAndFailures (0 ms)
+[0;32m[ RUN      ] [mInterventionResponse.TurnEstimatorHonoursToleranceBoundary
+[0;32m[       OK ] [mInterventionResponse.TurnEstimatorHonoursToleranceBoundary (0 ms)
+[0;32m[----------] [m8 tests from InterventionResponse (0 ms total)
+
+[0;32m[----------] [mGlobal test environment tear-down
+[0;32m[==========] [m8 tests from 1 test suite ran. (0 ms total)
+[0;32m[  PASSED  ] [m8 tests.
+-- run_tests.py: execute commands
+  /home/xcg/ws/devel/.private/path_searching/lib/path_searching/test_kinematic_mppi_controller --gtest_output=xml:/home/xcg/ws/build/path_searching/test_results/path_searching/gtest-test_kinematic_mppi_controller.xml
+[0;32m[==========] [mRunning 1 test from 1 test suite.
+[0;32m[----------] [mGlobal test environment set-up.
+[0;32m[----------] [m1 test from KinematicMppiController
+[0;32m[ RUN      ] [mKinematicMppiController.DrivesTowardForwardGoalWithoutObstacles
+[0;32m[       OK ] [mKinematicMppiController.DrivesTowardForwardGoalWithoutObstacles (0 ms)
+[0;32m[----------] [m1 test from KinematicMppiController (0 ms total)
+
+[0;32m[----------] [mGlobal test environment tear-down
+[0;32m[==========] [m1 test from 1 test suite ran. (0 ms total)
+[0;32m[  PASSED  ] [m1 test.
+cd /home/xcg/ws/build/path_searching; catkin test --get-env path_searching | catkin env -si  /usr/bin/make run_tests; cd -
+
+Output << path_searching:results /home/xcg/ws/logs/path_searching/test.results.148.log
+Summary: 162 tests, 0 errors, 0 failures, 0 skipped
+cd /home/xcg/ws/build/path_searching; catkin test --get-env path_searching | catkin env -si  catkin_test_results; cd -
+
+Finished <<< path_searching          [ 4.0 seconds ]                           
+[test] Summary: All 1 packages succeeded!                                      
+[test] Ignored: None.                                                          
+[test] Warnings: None.                                                         
+[test] Abandoned: No packages were abandoned.                                  
+[test] Failed: No packages failed.                                             
+[test] Runtime: 4.1 seconds total.                                             

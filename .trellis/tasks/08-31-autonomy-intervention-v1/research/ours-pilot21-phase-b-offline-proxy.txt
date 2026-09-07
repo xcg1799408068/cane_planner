@@ -1,0 +1,56 @@
+==============================================================================
+episode 1  frames= 85  dur=  8.6s  stop_advice=yes  drift_max=1.75m  corridor_source=astar_bootstrap
+           collapse at t+2.6s: valid_ratio=0.53 static_reject=94 corridor_reject=1
+episode 2  frames= 93  dur=  9.3s  stop_advice=yes  drift_max=2.30m  corridor_source=astar_bootstrap
+           collapse at t+0.1s: valid_ratio=0.00 static_reject=0 corridor_reject=200
+
+applied heading correction (field 19)
+  frames commanding a turn : 20 / 178
+  |correction| p50=0.175 p90=0.175 max=0.175 rad
+  frames at the cap       : 12
+  longest same-direction run: 9 frames  (a full 2*pi orbit needs ~37 frames at the cap)
+
+T_autonomy (T_guide fires when T_auto < threshold)
+  on-route, safe frames : n=39   p10=1.680 p50=1.960 p90=2.111
+  2.0s before collapse : n=21   p10=0.631 p50=1.680 p90=2.625
+  configured now        : 4.000
+  -> NOT SEPARABLE: the pre-collapse band overlaps normal walking;
+     this signal alone cannot gate GUIDANCE, a trend/margin term is needed
+
+J_safe*    (J_guide fires when J* > threshold)
+  on-route, safe frames : n=39   p10=0.012 p50=0.032 p90=0.052
+  2.0s before collapse : n=21   p10=0.040 p50=0.049 p90=0.076
+  configured now        : 0.060
+  -> NOT SEPARABLE: the pre-collapse band overlaps normal walking;
+     this signal alone cannot gate GUIDANCE, a trend/margin term is needed
+
+best_margin (a margin gate would fire when margin < threshold)
+  on-route, safe frames : n=39   p10=0.191 p50=0.267 p90=0.716
+  2.0s before collapse : n=21   p10=0.253 p50=0.705 p90=0.733
+  configured now        : nan
+  -> NOT SEPARABLE: the pre-collapse band overlaps normal walking;
+     this signal alone cannot gate GUIDANCE, a trend/margin term is needed
+
+best_lateral_margin (a width gate would fire when it drops)
+  on-route, safe frames : n=39   p10=0.191 p50=0.267 p90=0.717
+  2.0s before collapse : n=21   p10=0.326 p50=0.719 p90=0.735
+  configured now        : nan
+  -> NOT SEPARABLE: the pre-collapse band overlaps normal walking;
+     this signal alone cannot gate GUIDANCE, a trend/margin term is needed
+
+2-D margin argmin, as a fraction of the evaluation horizon
+  n=177  p10=0.05 p50=0.23 p90=0.94
+  near 0 or 1 => the 2-D minimum is a cell entry/exit face, not a
+  lateral pinch, which is why that signal carries no width information
+
+note: GUIDANCE also needs safe_count > 0; frames with safe_count == 0
+      fall into CAUTION first, so the threshold must fire before collapse.
+
+exact Phase A old raw trigger replay
+  T_auto<4.0 && J_star>0.06 && safe_count>0: 22 / 178 frames
+
+OFFLINE PROXY / NOT RUNTIME-EQUIVALENT dynamic analysis
+  Historical bag lacks exact LFPC heading, estimator config, and dynamic
+  coverage evidence. Recorded selected heading plus sparse odometry yaw is
+  insufficient to approve activation; a schema-v3 shadow bag is required.
+  proxy recoverable frames=175; T_turn p50=1.750 p90=3.850 s

@@ -1,0 +1,4 @@
+{"file":".trellis/spec/planning-runtime/robust-underactuated-corridor.md","reason":"Review must verify shared corridor timing/actionability semantics and no mismatch between generation and rollout evaluation."}
+{"file":".trellis/spec/operator-visualization/operator-verification.md","reason":"Review includes ROS launch/RViz smoke verification of intervention topics and selected trajectories."}
+{"file":".trellis/spec/operator-visualization/markers-and-topics.md","reason":"Review must verify topic types, frames, stable namespaces, and downstream consumers."}
+{"file":".trellis/spec/python-tools/index.md","reason":"Review must validate deterministic experiment and analysis scripts without introducing a new framework."}

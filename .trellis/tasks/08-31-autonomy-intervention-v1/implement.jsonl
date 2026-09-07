@@ -1,0 +1,4 @@
+{"file":".trellis/spec/planning-runtime/robust-underactuated-corridor.md","reason":"Same-sequence MPPI/DWCG timing and actionability contract must remain consistent while adding candidate evidence."}
+{"file":".trellis/spec/planning-runtime/ros-interfaces-and-config.md","reason":"Defines ROS parameter/topic boundaries and launch synchronization for the intervention interface."}
+{"file":".trellis/spec/operator-visualization/markers-and-topics.md","reason":"Defines standard message and stable marker/topic conventions for intervention diagnostics."}
+{"file":".trellis/spec/python-tools/index.md","reason":"Defines conventions for pedestrian simulation and offline experiment scripts."}
