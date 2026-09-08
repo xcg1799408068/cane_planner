@@ -1,48 +1,82 @@
-# Static FIRI port execution
+# Dynamic walking corridor execution
 
-Current clearance-preference follow-up is isolated in `/tmp/astar-clearance-ab9b`, with a freshly copied primary baseline and SHA-256 manifest. Reproduce with `python3 build.py`, `python3 build_manager.py`, `python3 build_routes.py`, `python3 run.py`, and `python3 check_launch.py` from that directory. Native -O2/-Wall compilation covers all current path-searching sources, collision adapter, manager node and actual STOP test; unchanged dependencies are linked read-only. All 94 C++ tests pass (13 A*, 13 geometry, 6 snapshot, 15 connector/pruning/angular/MVIE, 11 static MPC/backend, 2 actual STOP, 34 legacy). Reviewer corrections preflight unsupported preference/native-grid query budgets, retain a certified off-lattice goal at horizon termination, and restore omitted legacy sigma 0.5; the horizon test also fails with only that correction removed. No efficiency/cache changes were added. Logs and exact commands are in that directory. Private master port 11507 is stopped after tests. Full simulation/Gazebo parameter trees resolve; hardware sensor dependencies are absent, so only its planner include was resolved after removing sensor includes from temporary input. No full catkin rebuild or navigation claim.
+Baseline: isolated clean checkout moved from stale `09abde7` to detached `96bc339` before edits. Main worktree listing reports `96bc339`. No primary git redirect, source write or build overwrite is permitted. Earlier static implementation narratives are historical and superseded by the baseline contracts, not pending work.
 
-Fixed-endpoint partial snapshot runs compare current-primary defaults against the new defaults, not full routes: SiatJ7 length 6.832889 -> 7.008625 m, whole-edge minimum clearance 0.036604 -> 0.294251 m; M6wfx3 8.015527 -> 8.304626 m and 0.018622 -> 0.454631 m. FIRI accepts all four (regions 4->4 and 4->3). Search increases from ~0.1-0.2 ms to ~48/75 ms locally; FIRI ~13-19 ms. Comfort quadrature is approximate, hard certificates unchanged. No map fluctuation or runtime recovery fix. Main-session patch review/integration and user navigation remain pending.
+## Crossing starvation correction (current dirty-primary baseline)
 
-- [x] Verify worktree root/HEAD and primary hashes; preserve original copied baseline.
-- [x] Implement attributed NLopt/Eigen C++ 2D FIRI with whole-cell separation and MVIE, point seeds, certificates, numerical envelope and bounds.
-- [x] Replace rectangle generator and launch width parameters; preserve MPPI and planner 4.
-- [x] Add aligned map-cell snapshot with mandatory known-space or explicit unsupported-backend failure.
-- [x] Render arbitrary polygon fills and thin outlines; remove replaced rectangle helper and dense labels.
-- [x] Build plan_env/path_searching/plan_manage in isolated catkin workspace.
-- [x] Build all registered C++ test executables and run all 56 tests with bounded private roscore (port 11479), shut down on exit.
-- [x] Preserve 17 passing Python reference regressions and regenerate baseline-relative patch including new files.
-- [x] Replace extra evidence policy with exact existing map-model classification; global ESDF supported, static known flag respected, local SDF observed-FREE override removed.
-- [x] Real default-filter SDF producer regression and all 56 C++ tests pass under bounded private master.
-- [x] Attempt bounded headless default goal smoke (only RViz omitted): nodes initialize, but FSM reports no odom and corridor topic times out; no navigation success claimed. Existing simulator was not replaced.
-- [ ] Main session reviews/applies patch; user performs live navigation retest.
+Confirmed continuous 10 Hz observations invalidate every otherwise-actionable cycle in the geometry/MPPI lock gap. The approved correction supersedes the earlier requirement to reject every message arriving during MPPI: serialize accepted observation -> geometry -> MPPI -> fresh-snapshot authorization -> execution under one nonrecursive transaction lock, releasing before visualization sleep. Callbacks preserve their entry receipt time while waiting; queued observations are accepted only after commit and are not claimed checked by that commit. Keep immutable token and original stamp/receipt age checks, invalid/stale STOP, goal-reset locking, and disabled-source semantics. No timeout/cost/FIRI/A*/SFM/scenario tuning or retries.
 
-## Reproducible isolated commands
+Baseline is the actual dirty primary copied read-only into `/tmp/cane-crossing-transaction-baseline`, with SHA-256 per file; all eight relevant isolated files matched primary. Deliver only a new incremental bugfix against these bytes, not the historical full 96bc339 patch. Synchronization and queued production interleavings are implemented; no main source/devel writes or simulation launch. Independent review remains pending.
 
-    catkin config --workspace /tmp/cane-firi-catkin --init --extend /home/xcg/ws/devel --cmake-args -DCMAKE_BUILD_TYPE=Release -DPYTHON_EXECUTABLE=/usr/bin/python3
-    catkin build --workspace /tmp/cane-firi-catkin path_searching plan_manage --no-status -j2 -p1
-    catkin build --workspace /tmp/cane-firi-catkin path_searching --no-deps --no-status --make-args tests -j2
+Isolated verification commands:
 
-Sources are symlinked from the verified isolated worktree into /tmp/cane-firi-catkin/src. The shell already exposes ROS Noetic; explicit source /opt/ros/noetic/setup.bash was refused by the isolation guard, so catkin's explicit existing workspace extension supplied dependencies without permission bypass.
+```sh
+catkin build --workspace /tmp/cane-dwcg-a24e plan_manage --no-deps --no-status -j2 -p1
+catkin build --workspace /tmp/cane-dwcg-a24e path_searching plan_manage --no-deps --no-status -j2 -p1 --make-args tests
+python3 /tmp/cane-dwcg-a24e/run_tests.py
+python3 /tmp/cane-dwcg-a24e/negative_old_gap.py
+```
 
-Run each /tmp/cane-firi-catkin/devel/lib/path_searching/test_* executable with ROS_MASTER_URI=http://127.0.0.1:11479 and ROS_HOSTNAME=127.0.0.1 under a bounded private roscore. Logs: /tmp/firi-test_*.log; /tmp/cane-firi-roscore.log. Master-less initial static test timed out; rerun with private master passed. Build logs: /tmp/cane-firi-catkin/logs.
+Production/test builds pass without compiler warnings; all 116 registered tests pass (102 path-searching + 14 manager; prior 114 with interleaving semantics updated plus two repeated-traffic regressions). Empty and nonblocking moving-pedestrian traffic each uses eight consecutive 0.1 s observation timestamps and callback entry during the actual MPPI transaction, with LFPC progress and STOP=false every cycle. Deterministic entry barriers verify callbacks cannot mutate cache until commit. Test-only clock driving permits unchanged visualization sleep; reported wall times include 20 ms contention barriers and ROS delivery waits, not a live scheduler/real-time benchmark. Empty mean/max 30.19/30.62 ms; moving 30.44/31.30 ms locally. No navigation success or hard real-time/fairness claim.
 
-Results: 11 FIRI geometry, 11 static MPC/backend, 18 dynamic corridor legacy, 1 kinematic MPPI legacy, 2 path smoother, 3 timed trajectory, 10 timed corridor/feasibility = 56 passed. C++ obstacle-detour fixture ~0.44 ms, six regions (local measurement only). Initial dependency build emitted existing obj_predictor signedness, optional PCL I/O and deprecated gazebo_msgs warnings. Removed new unused visualization helper; an incremental package build had no warnings; final dependency-metadata reconfigure emitted existing CMake project-policy and optional PCL I/O warnings, with no compiler warnings. No ROS navigation/GUI or primary integration result claimed.
+Accepted blocker -> frozen STOP -> fresh clear -> resumed actual integration passes. Queued blocker is explicitly accepted after the preceding fresh cycle, then blocks the next; original snapshot expiry during computation still freezes LFPC even with a queued clear frame. Queued receipt remains its callback-entry timestamp, not the later unlock time. Invalid, disabled, repeated STOP odometry and goal/reset concurrency tests pass. Original strict replacement tests are replaced by queued semantics, not bypassed via callback joins under a held lock.
 
-Latest logs: firi-model-build.log, firi-model-test-build.log, firi-test_*.log, firi-headless-smoke.log, firi-headless-goal.log, firi-headless-corridor.log. Durable copies accompany the patch under delivery/static-firi in this isolated worktree. No native run skill was available in this session; a bounded subprocess launch omitted only RViz.
+Negative control compiled the SAME updated production manager/tests with only the old geometry/MPPI lock gap restored in a temporary source copy. Both repeated-traffic regressions failed with ordinary gtest exit 1 (not timeout/crash): every cycle STOPped and total displacement stayed zero, while fixed-source tests passed. No timeout, sample-count or scenario change was used to make this distinction.
 
-## Approved original-edge segment revision (2026-09-07)
+Current logs: `/tmp/cane-dwcg-a24e/build-transaction.log`, `test-build-transaction.log`, `tests-transaction.log`, `test-logs/`; temporary negative-control build/logs under `old-gap-negative/`. TSAN remains unavailable from the recorded missing `libtsan_preinit.o`; no installation or sanitizer success claim. Deliver this fix in isolated `delivery/crossing-transaction/`, keeping historical full deliveries separate.
 
-The runtime now walks original A* edges without shortcuts, subdividing at a configurable maximum segment length (default 1 m). Each restrictive solve protects both endpoints with the metric clearance norm included in its constraints; final normalized planes certify both endpoints and whole blocked cells. MVIE-only certified roundoff handling is unchanged.
+## Ordered implementation
 
-The old min_progress, overlap_depth and overlap_area configuration is removed. Adjacent regions require a local-frame witness with at least 1e-6 m slack (100 times the 1e-8 m vertex feasibility tolerance), rather than a physical-sized disk or fixed area. A failed direct overlap inserts the same FIRI at the shared endpoint and checks both joins; failure clears all output. Connection regions count toward the global region/time budget. No footprint or LFPC guarantee follows.
+- [x] Verify isolated baseline and read current task/spec/research contracts.
+- [x] Replace obsolete task scope/manifests before source changes.
+- [x] Implement pure bounded social-force/body hull module and focused tests.
+- [x] Generalize one FIRI separator to convex polygons, protected-reference diagnostics and complete exclusion tests, preserving static numerics.
+- [x] Integrate planner-3 source validity/TF/freshness, per-cycle geometry refresh and explicit snapshot non-capture; retain planner 4 and STOP serializer.
+- [x] Add transient body/social markers, source-enable launch propagation and deterministic existing-simulator scenarios.
+- [x] Register and execute pure/corridor/actual-manager transition regressions, static regressions and bounded timings.
+- [x] Build path_searching and plan_manage with catkin_tools in a new isolated workspace extending `/home/xcg/ws/devel` read-only. Run tests under a bounded private ROS master; never launch user simulation.
+- [x] Validate Python syntax/launch parameter propagation and inspect incremental diff. Delivery script generates/checks patch against `96bc339`, changed files and exact-command logs outside tracked source.
+- [ ] Main-session independent review/integration; user-run navigation remains pending.
 
-Snapshot v2 stores max_segment_length. v1 readers explicitly consume and discard historical geometric-only progress/depth/area fields; the new segment length defaults to 1 m, never reinterpreting area as length. Historical failure diagnostics remain intact.
+## Validation approach
 
-Pruning follow-up verified in /tmp/firi-prune-native: 13 geometry, 5 snapshot, 10 connector/pruning/MVIE-roundoff and 11 static MPC/backend tests pass. Commands: `python3 /tmp/firi-prune-native/checks.py`, `python3 /tmp/firi-prune-native/build_static.py`, `python3 /tmp/firi-prune-native/run_static.py`; logs: final-focused.log, static-build.log, static-test.log in that directory. Historical fixtures reduce from baseline 81 raw regions to 4/4/3 final regions (~23/24/21 ms); 500-edge straight reduces to 3 (~20 ms, test-only cap 600). The default cap still rejects that 500-edge input during raw generation. Point-touch/disjoint skips, uncovered diagonal despite covered vertices, pruning deadline, endpoint seed metadata and arbitrary raw polygons are covered. No solver/map/MPC changes, primary writes, full catkin rebuild or navigation claim. Native compile used -Wall with no warnings; the bounded private master on port 11491 was stopped.
+Use a unique temporary catkin workspace with symlinks only to this isolated worktree, explicit `--workspace`, `--extend /home/xcg/ws/devel`, Release and `/usr/bin/python3`. Existing dependencies only; stop and report if unavailable. Build owning packages and registered tests. Private test master must be terminated in a finally/trap guard. Capture command stdout/stderr outside tracked sources. No test count, timing or completion claim before execution.
 
-## A* continuous-edge follow-up (2026-09-07)
-Isolated incremental implementation checks candidate/start/terminal edges against selected native bins at corridor clearance. Exact reported diagonal rejects; small fixture reroutes and builds a corridor. Latest captured grid reroutes from 80 to 78 edges, all edge checks pass, but full corridor acceptance remains blocked by restrictive separation solver roundoff (-4). No solver tolerance or policy changed. Native verification: 28 geometry/snapshot/roundoff and 11 static MPC/backend tests pass; 2 of 3 new edge tests pass, full snapshot corridor assertion remains failing. Integration and navigation remain pending.
+Rollback is the baseline-relative patch boundary: only this worktree is modified. Do not revert unrelated primary work, commit or push. If implementation cannot be completed, report exact partial status and unresolved verification directly rather than marking acceptance complete.
 
-## Verified restrictive-separation numerical follow-up
-The captured reroute edge72 starts on an active cell face and previously raises NLopt roundoff despite 1.165928 m geometric clearance. For nonpositive clearance-inclusive seed support, outward radial scaling cannot violate either seed constraint; initialize a sqrt(machine-epsilon) relative step inside the cell constraints in that unbounded feasible interval. Bounded intervals retain closest-face initialization. Tighten restrictive solver constraint tolerance from 1e-9 to 1e-12 so dimensionless feasibility also satisfies unchanged normalized metric endpoint certificates. Successful solver status remains mandatory; no roundoff acceptance, certificate relaxation, retries or alternate solver. Exact seed/cell regression fails baseline and passes corrected source. Final native results: 13 geometry, 5 snapshot, 11 connector/pruning/separation/MVIE, 11 static MPC/backend, 3 A* tests pass. Latest captured path reroutes 80 to 78 edges, produces 3 regions; old invalid diagonal still rejects. Search approximately 0.103 ms locally. Full catkin integration/navigation remain untested.
+## P2 disabled-source correction
+
+The callback now checks `pedestrians_enabled_` under the existing mutex before incrementing generation. Disabled messages are ignored without changing cache/generation; enabled invalid/same-stamp messages, actual enable transitions and goal resets retain the P1 invalidation mechanism. No final-authorization change or expanded runtime scope. Added one actual manager test injecting a blocker from a second thread after real MPPI while disabled, requiring a valid static plan, LFPC displacement/state advance, empty pedestrian cache and STOP=false. The exact runtime/test/contract delta against the reviewed P1 version is delivered as `p2-disabled-source.diff`; prior files are preserved under `/tmp/cane-dwcg-a24e/p2-before`.
+
+Verification: isolated production manager build and path_searching/manager test build passed; all 114 tests passed (113 previous + 1, manager suite now 12). Latest logs are `/tmp/cane-dwcg-a24e/build-p2.log`, `test-build-p2.log`, `tests-p2.log` and `test-logs/`, copied to the same delivery directory. No compiler warnings reported in these builds. The same private-master runner terminates its master after tests. Patch/manifest refreshed against 96bc339; no main source/build writes or commit.
+
+## P1 review corrections verified
+
+Only the two reviewed concurrency defects were changed. Each production manager cycle now captures immutable generation/enable/stamp/receipt with corridor input; final authorization checks this token and holds `dynObsMutex_` through immediate LFPC integration and command/odom publication. Same-stamp/new/invalid messages and goal resets advance generation. Both goal callbacks use locking `resetCorridorForGoal`; already-locked geometry/clear/publication helpers do not recursively acquire the mutex. Source enable remains initialization-only in production; the friend test seam models future synchronized enable transitions with generation invalidation. No A*/MPPI algorithm, hull, launch or map changes in this correction.
+
+Five deterministic manager regressions were added through compile-time test-only barriers (absent from kin_replan_node): same-stamp blocker replacement after an actual feasible MPPI evaluation, expired A masked by fresh empty B, unchanged-but-expired A, invalid/disable-reenable invalidation, and both actual goal callbacks racing real geometry generation/publication. The reset test uses a barrier to prove it waits on the generation lock, then repeats concurrent build/reset. Prior reviewed sources remain under `/tmp/cane-dwcg-a24e/p1-before`; `p1-corrections.diff` in delivery provides the exact four-source-file delta from that version.
+
+Final verification: all 113 C++ tests pass (108 previous + 5 new; manager suite 11). Commands are the same isolated catkin builds/runner below; latest logs are `build-p1.log`, `test-build-p1-final.log`, `tests-p1-final.log`, and `test-logs/`. No new compiler warnings in final test build. TSAN was attempted via `g++ -std=c++14 -fsanitize=thread -g -pthread /tmp/cane-dwcg-a24e/tsan_probe.cpp -o /tmp/cane-dwcg-a24e/tsan_probe`; linking fails because `libtsan_preinit.o` is absent. No installation or TSAN success claim. `tsan-probe.log` records this limitation. Delivery patch/manifest/logs are refreshed at the existing path and rechecked against exact 96bc339; independent re-review remains pending.
+
+## Executed validation (2026-09-08)
+
+Workspace `/tmp/cane-dwcg-a24e`, isolated plan_env/path_searching/plan_manage source symlinks, existing main devel extended read-only. Commands:
+
+```sh
+catkin config --workspace /tmp/cane-dwcg-a24e --init --extend /home/xcg/ws/devel --cmake-args -DCMAKE_BUILD_TYPE=Release -DPYTHON_EXECUTABLE=/usr/bin/python3
+catkin build --workspace /tmp/cane-dwcg-a24e path_searching plan_manage --no-status -j2 -p1
+catkin build --workspace /tmp/cane-dwcg-a24e path_searching plan_manage --no-deps --no-status -j2 -p1
+catkin build --workspace /tmp/cane-dwcg-a24e path_searching plan_manage --no-deps --no-status -j2 -p1 --make-args tests
+python3 /tmp/cane-dwcg-a24e/run_tests.py
+/usr/bin/python3 /tmp/cane-dwcg-a24e/check_interfaces.py
+```
+
+All 108 registered C++ tests pass: A* 13, static geometry 13, snapshots 6, angular/pruning/MVIE 15, static MPPI/backend 11, legacy timed/dynamic/kinematic/smoother 34, new polygon/dynamic corridor 10, actual manager/STOP 6. The private master at 11519 is started/stopped by the test runner; no simulation launch. Manager tests distinguish fresh empty/missing/stale/future/malformed/untransformable frames, position/vector/full-box rotation, frozen STOP and actual blocked-to-clear integration. The successful branch's existing prepareNextStep zeroes instantaneous velocity; recovery is asserted by a valid plan plus changed gait state and displacement, not a fabricated nonzero serializer velocity.
+
+Final owning-package build/test build had no compiler warnings. Private-master manager tests emit intermittent existing XmlRpc accept EAGAIN messages but complete successfully. Initial missing gtest main and recovery-fixture initialization/assertion errors were corrected; logs retain final passing evidence. Runtime human navigation is untested.
+
+Ten-repeat small 100x100 empty-grid/five-waypoint timing: static corridor mean 0.241 ms, one pedestrian corridor mean 0.484 ms (local measurement, excludes SFM and ROS, no hard-real-time claim). Legacy/static regression tests pass with unchanged MPPI/A* sources. Source-enabled dynamic snapshots are explicitly suppressed by both manager and capture API; exact dynamic runtime replay remains unsupported.
+
+Python AST, all launch XML, lightweight static/enabled parameter trees, Gazebo enabled/truth and localization-wrapper propagation pass. Existing FAST-LIO source path and generated onboard_detector messages were supplied read-only for resolution/import, not installed or rebuilt. Actual simulator class steps deterministically for approach/crossing/stationary scenarios. Hardware launch was not fully resolved because sensor includes were not exercised; its direct enable forwarding and shared consumer parameter were inspected. No RViz/GUI/navigation smoke claimed.
+
+Final logs: `/tmp/cane-dwcg-a24e/build-delivery.log`, `test-build-delivery.log`, `tests-delivery.log`, `interfaces-delivery.log`, and `test-logs/`. Durable copies and reproduction scripts accompany the incremental patch under isolated `delivery/dynamic-walking-corridor/`; they are excluded from the patch. Main-session independent review and user navigation remain pending.

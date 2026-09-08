@@ -131,6 +131,7 @@
     <!-- Planner stack (A* + MPC) -->
     <include if="$(arg use_planner)" file="$(find plan_manage)/launch/include/algorithm.launch">
         <arg name="planner" value="$(arg planner)"/>
+        <arg name="use_pedestrians" value="$(eval arg('use_pedestrians') or arg('use_gazebo_pedestrian_truth') or arg('use_world_pedestrians'))"/>
         <arg name="astar_w_clearance" value="$(arg astar_w_clearance)"/>
         <arg name="astar_clearance_sigma" value="$(arg astar_clearance_sigma)"/>
         <arg name="odometry_topic" value="$(arg planner_odom_topic)"/>
@@ -180,13 +181,15 @@
     </include>
 
     <!-- Pedestrian simulation -->
-    <group if="$(arg use_pedestrians)">
+    <group if="$(eval arg('use_pedestrians') and not arg('use_gazebo_pedestrian_truth'))">
         <node pkg="plan_manage" type="pedestrian_sim.py" name="pedestrian_sim" output="screen">
             <!-- trigger mode: pedestrian stays at start, walks once on goal, then disappears.
                  Re-triggered automatically when a new goal is set.
                  vel = [vx, vy, 0]  gives walking direction and speed (m/s).
                  period = total walk duration (s).  -->
-            <rosparam param="pedestrians">
+            <param name="frame_id" value="$(eval 'world' if arg('planner') == 3 else 'map')"/>
+            <param if="$(eval arg('planner') == 3)" name="scenario" value="dwcg_crossing"/>
+            <rosparam unless="$(eval arg('planner') == 3)" param="pedestrians">
             # 场景1: 横向穿越 (从侧面穿过)
             - {start: [1, 2.5, 0], vel: [0, 0.5, 0], size: [0.5, 0.5, 1.7], period: 4.0, mode: trigger}
             # 场景2: 迎面行人 (从前方走来)

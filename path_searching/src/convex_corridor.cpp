@@ -110,7 +110,8 @@ void solve(Optimizer& opt, std::vector<double>&x, Clock::time_point end, C::Diag
 // All other maxima are on a sector or seed-feasibility boundary. Enumerating
 // these finitely many directions is complete in 2D; no angular sampling or
 // optimizer status is used as a geometric feasibility certificate.
-H separate(const Cell& cell,const V&seed,const V&other,const V&center,const M&L,const C::Config&cfg,Clock::time_point end,C::Diagnostics& diag) {
+template<class Obstacle>
+H separate(const Obstacle& cell,const V&seed,const V&other,const V&center,const M&L,const C::Config&cfg,Clock::time_point end,C::Diagnostics& diag) {
     stage(diag,C::FailureStage::OBSTACLE_SEPARATION_SOLVE);
     deadline(end);
     require(seed.allFinite() && other.allFinite() && center.allFinite() &&
@@ -195,7 +196,8 @@ void mvie(std::vector<H>&hs,V&center,M&L,const C::Config&cfg,Clock::time_point e
     diag.stage=C::FailureStage::OUTPUT_CERTIFICATE;
     certifyMvie(hs,x,center,L);
 }
-C::Segment inflate(const C::Grid&grid,const V&begin,const V&finish,const C::Config&cfg,Clock::time_point end,C::Diagnostics& diag) {
+C::Segment inflate(const C::Grid&grid,const V&begin,const V&finish,const C::Config&cfg,Clock::time_point end,C::Diagnostics& diag,
+                   const std::vector<Poly>& dynamic = {}) {
     diag=C::Diagnostics(); diag.stage=C::FailureStage::REGION_INIT;
     // Midpoint-local coordinates protect both endpoints of this original-edge seed.
     const V seed=(begin+finish)*.5, a_seed=begin-seed, b_seed=finish-seed;
@@ -212,6 +214,11 @@ C::Segment inflate(const C::Grid&grid,const V&begin,const V&finish,const C::Conf
         require(!((a.array()<=cfg.clearance).all()&&(z.array()>=-cfg.clearance).all()),C::FailureReason::REFERENCE_OCCUPIED);
         cells.push_back({a,V(z.x(),a.y()),z,V(a.x(),z.y())});
     }}
+    std::vector<Poly> polygons;
+    for(const auto& world:dynamic) {
+        Poly local;for(const auto& p:world)local.push_back(p-seed);
+        polygons.push_back(std::move(local));
+    }
     V center=V::Zero(); M L=M::Identity()*.05; std::vector<H> hs;
     for(int it=0;it<cfg.iterations;++it) {
         diag.outer_iteration=it;
@@ -226,6 +233,16 @@ C::Segment inflate(const C::Grid&grid,const V&begin,const V&finish,const C::Conf
                 return gap>=cfg.clearance-1e-8;
             }),remaining.end());
             require(remaining.size()<old,C::FailureReason::NO_PROGRESS);
+        }
+        for(const auto& polygon:polygons) {
+            deadline(end);
+            bool excluded=false;
+            for(const auto& h:hs) {
+                double gap=std::numeric_limits<double>::infinity();
+                for(const auto& p:polygon)gap=std::min(gap,-slack(h,p));
+                excluded=excluded || gap>=cfg.clearance-1e-8;
+            }
+            if(!excluded)hs.push_back(separate(polygon,a_seed,b_seed,center,L,cfg,end,diag));
         }
         mvie(hs,center,L,cfg,end,diag);
     }
@@ -256,6 +273,15 @@ C::Segment inflate(const C::Grid&grid,const V&begin,const V&finish,const C::Conf
             for(auto&p:cell) { gap=std::min(gap,-slack(h,p)); }
             separated=separated||gap>=cfg.clearance-1e-7; }
         require(separated,C::FailureReason::OUTPUT_CERTIFICATE);
+    }
+    for(const auto& polygon:polygons) {
+        deadline(end);bool excluded=false;
+        for(const auto& h:hs) {
+            double gap=std::numeric_limits<double>::infinity();
+            for(const auto& p:polygon)gap=std::min(gap,-slack(h,p));
+            excluded=excluded || gap>=cfg.clearance-1e-7;
+        }
+        require(excluded,C::FailureReason::OUTPUT_CERTIFICATE);
     }
     C::Segment r;r.center=center+seed;r.vertices=v;for(auto&p:r.vertices)p+=seed;
     for(auto&h:hs) { h.offset+=h.normal.dot(seed); }
@@ -359,7 +385,7 @@ double ConvexCorridor::polygonArea(const Poly&v) {
 }
 const char* ConvexCorridor::failureReasonName(FailureReason r) {
 #define NAME(x) case FailureReason::x: return #x
-    switch(r){NAME(NONE);NAME(INVALID_INPUT);NAME(REFERENCE_OCCUPIED);NAME(DEGENERATE_PATH);NAME(NO_OVERLAP);NAME(NO_PROGRESS);NAME(NUMERICAL_FAILURE);NAME(OUTPUT_CERTIFICATE);NAME(BUDGET);NAME(UNSUPPORTED_SCALE);NAME(UNSUPPORTED_BACKEND);}
+    switch(r){NAME(NONE);NAME(INVALID_INPUT);NAME(REFERENCE_OCCUPIED);NAME(DEGENERATE_PATH);NAME(NO_OVERLAP);NAME(NO_PROGRESS);NAME(NUMERICAL_FAILURE);NAME(OUTPUT_CERTIFICATE);NAME(BUDGET);NAME(UNSUPPORTED_SCALE);NAME(UNSUPPORTED_BACKEND);NAME(DYNAMIC_REFERENCE_BLOCKED);NAME(DYNAMIC_DATA_INVALID);}
 #undef NAME
     return "UNKNOWN";
 }
@@ -380,8 +406,8 @@ std::string ConvexCorridor::diagnosticsText(const Result& r) {
     if(d.constraint_violation_valid)ss << d.max_constraint_violation; else ss << "NA";
     return ss.str();
 }
-ConvexCorridor::Result ConvexCorridor::buildStatic(const Poly&path,const Grid&grid) const {
-    Result out;out.diagnostics.stage=FailureStage::INPUT;const auto began=Clock::now();const auto&c=cfg_;
+ConvexCorridor::Result ConvexCorridor::buildStatic(const Poly&path,const Grid&grid,const std::vector<Poly>& dynamic) const {
+    Result out;out.has_dynamic_input=!dynamic.empty();out.diagnostics.stage=FailureStage::INPUT;const auto began=Clock::now();const auto&c=cfg_;
     try {
         require(path.size()>=2 && grid.width>0 && grid.height>0 && grid.width<=10000 && grid.height<=10000 &&
                 grid.blocked.size()==size_t(grid.width)*size_t(grid.height),FailureReason::INVALID_INPUT);
@@ -399,6 +425,37 @@ ConvexCorridor::Result ConvexCorridor::buildStatic(const Poly&path,const Grid&gr
         for(size_t i=0;i<path.size();++i){require(path[i].allFinite(),FailureReason::INVALID_INPUT);require(path[i].cwiseAbs().maxCoeff()<=1e4,FailureReason::UNSUPPORTED_SCALE);
             if(i){double d=(path[i]-path[i-1]).norm();require(d>=1e-9,FailureReason::DEGENERATE_PATH);arc.push_back(arc.back()+d);}}
         const auto end=began+std::chrono::duration_cast<Clock::duration>(std::chrono::duration<double>(c.max_seconds));
+        require(dynamic.size()<=1,FailureReason::DYNAMIC_DATA_INVALID);
+        for(const auto& polygon:dynamic) {
+            require(polygon.size()>=3 && polygon.size()<=32,FailureReason::DYNAMIC_DATA_INVALID);
+            for(const auto& p:polygon)require(p.allFinite() && p.cwiseAbs().maxCoeff()<=1e4 &&
+                (p-polygon.front()).norm()<=20,FailureReason::DYNAMIC_DATA_INVALID);
+            // Strictly convex CCW input: one support plane represents the whole
+            // obstacle, never unrelated point-wise separating planes.
+            for(size_t i=0;i<polygon.size();++i) {
+                const V a=polygon[(i+1)%polygon.size()]-polygon[i];
+                require(a.norm()>1e-8,FailureReason::DYNAMIC_DATA_INVALID);
+                for(size_t j=0;j<polygon.size();++j) {
+                    if(j==i || j==(i+1)%polygon.size())continue;
+                    const V b=polygon[j]-polygon[i];
+                    require(a.x()*b.y()-a.y()*b.x()>1e-10,FailureReason::DYNAMIC_DATA_INVALID);
+                }
+            }
+        }
+        // Check the entire protected local reference before numerical inflation:
+        // a later crossing must not be obscured by an earlier MVIE failure.
+        for(size_t edge=0;edge+1<path.size() && !dynamic.empty();++edge) {
+            out.failure_segment_index=edge;out.failure_s=arc[edge];
+            out.failure_position=path[edge];out.failure_position_valid=true;
+            for(const auto& world:dynamic) {
+                Poly local;for(const auto& p:world)local.push_back(p-path[edge]);
+                try {separate(local,V::Zero(),path[edge+1]-path[edge],V::Zero(),M::Identity(),c,end,out.diagnostics);}
+                catch(const Failure& f) {
+                    if(f.reason==FailureReason::REFERENCE_OCCUPIED)throw Failure{FailureReason::DYNAMIC_REFERENCE_BLOCKED};
+                    throw;
+                }
+            }
+        }
         out.min_overlap_area=out.min_overlap_depth=std::numeric_limits<double>::infinity();
         auto append=[&](Segment r) {
             deadline(end);
@@ -424,7 +481,7 @@ ConvexCorridor::Result ConvexCorridor::buildStatic(const Poly&path,const Grid&gr
                 out.failure_segment_index=out.segments.size();
                 out.failure_s=arc[edge]+length*j/pieces;
                 out.failure_position=a;out.failure_position_valid=true;
-                Segment r=inflate(grid,a,b,c,end,out.diagnostics);
+                Segment r=inflate(grid,a,b,c,end,out.diagnostics,dynamic);
                 r.s0=out.failure_s;r.s1=arc[edge]+length*(j+1)/pieces;
                 if(!out.segments.empty()) {
                     bool connected=true;
@@ -432,7 +489,7 @@ ConvexCorridor::Result ConvexCorridor::buildStatic(const Poly&path,const Grid&gr
                     catch(const Failure& f) { if(f.reason!=FailureReason::NO_OVERLAP)throw;connected=false; }
                     if(!connected) {
                         require(out.segments.size()+2<=size_t(c.max_regions),FailureReason::BUDGET);
-                        Segment connection=inflate(grid,a,a,c,end,out.diagnostics);
+                        Segment connection=inflate(grid,a,a,c,end,out.diagnostics,dynamic);
                         connection.s0=connection.s1=r.s0;
                         append(std::move(connection));
                     }

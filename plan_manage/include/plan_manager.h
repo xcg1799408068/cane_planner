@@ -5,6 +5,10 @@
 #include <limits>
 #include <vector>
 #include <mutex>
+#include <cstdint>
+#ifdef CANE_MANAGER_INTERLEAVING_TEST
+#include <functional>
+#endif
 
 #include <Eigen/Eigen>
 #include <Eigen/Geometry>
@@ -28,6 +32,7 @@
 #include <path_searching/dynamic_walking_corridor.h>
 #include <path_searching/timed_trajectory_builder.h>
 #include <path_searching/convex_corridor.h>
+#include <path_searching/pedestrian_polygon.h>
 #include <path_searching/corridor_failure_snapshot.h>
 #include <path_searching/path_smoother.h>
 #include <path_searching/lfpc.h>
@@ -96,6 +101,34 @@ namespace cane_planner
         std::vector<Eigen::Vector3d> dynObsVel_;
         std::vector<Eigen::Vector3d> dynObsSize_;
         std::mutex dynObsMutex_;
+        // Planner-3 source contract, separate from untouched planner-4 legacy data.
+        bool pedestrians_enabled_ = false;
+        bool pedestrian_frame_valid_ = false;
+        double pedestrian_max_age_ = .5;
+        std_msgs::Header pedestrian_header_;
+        ros::Time pedestrian_receipt_;
+        std::string pedestrian_data_reason_ = "MISSING_FRAME";
+        std::vector<PedestrianPolygon::Observation> pedestrian_observations_;
+        std::vector<Eigen::Vector3d> pedestrian_positions_, pedestrian_velocities_, pedestrian_full_sizes_;
+        PedestrianPolygon::Config pedestrian_config_;
+        std::vector<PedestrianPolygon::Result> pedestrian_geometry_;
+        struct PedestrianFrameToken {
+            uint64_t generation = 0;
+            bool enabled = false;
+            ros::Time stamp, receipt;
+        };
+        uint64_t pedestrian_generation_ = 0; // accepted enabled frames and goal resets
+        // All pedestrian cache/geometry helpers ending Locked require dynObsMutex_.
+        void receivePedestrians(const onboard_detector::DynamicObstacles::ConstPtr&, const ros::Time& receipt);
+        bool pedestrianDataValid(const ros::Time& now);
+        bool authorizePedestrianFrameLocked(const PedestrianFrameToken&, const ros::Time&);
+        void clearPedestrianMarkersLocked();
+        void resetCorridorForGoal();
+#ifdef CANE_MANAGER_INTERLEAVING_TEST
+        // Compiled only into the manager regression target, absent from runtime.
+        std::function<void()> after_mppi_test_hook_, geometry_locked_test_hook_;
+        std::function<void()> pedestrian_callback_entry_test_hook_;
+#endif
 
         // MPC 规划结果缓存 (用于可视化)
         std::vector<Eigen::Vector3d> mpc_com_path_;
@@ -276,9 +309,10 @@ namespace cane_planner
         std::vector<Eigen::Vector2d> buildWalkingCorridorReferencePath(
                                              const Eigen::Vector3d& current_pose) const;
         void publishWalkingCorridor(const DynamicWalkingCorridor::Result& result);
-        ConvexCorridor::Result updateAndPublishConvexCorridor(
-                                             const Eigen::Vector3d& current_pose);
-        void publishConvexCorridor(const ConvexCorridor::Result& result);
+        ConvexCorridor::Result updateAndPublishConvexCorridorLocked(
+                                             const Eigen::Vector3d& current_pose,
+                                             PedestrianFrameToken* used_frame = nullptr);
+        void publishConvexCorridorLocked(const ConvexCorridor::Result& result);
         const char* interactionSceneName(InteractionScene scene) const;
         const char* interactionModeName(InteractionMode mode) const;
 

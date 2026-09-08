@@ -1,4 +1,8 @@
-{"file":".trellis/spec/planning-runtime/robust-underactuated-corridor.md","reason":"Same-sequence MPPI/DWCG timing and actionability contract must remain consistent while adding candidate evidence."}
-{"file":".trellis/spec/planning-runtime/ros-interfaces-and-config.md","reason":"Defines ROS parameter/topic boundaries and launch synchronization for the intervention interface."}
-{"file":".trellis/spec/operator-visualization/markers-and-topics.md","reason":"Defines standard message and stable marker/topic conventions for intervention diagnostics."}
-{"file":".trellis/spec/python-tools/index.md","reason":"Defines conventions for pedestrian simulation and offline experiment scripts."}
+{"file":".trellis/spec/planning-runtime/current-frame-pedestrian-corridor.md","reason":"Approved first-version source/SFM/whole-polygon/diagnostics contracts and limitations."}
+{"file":".trellis/spec/planning-runtime/static-firi-corridor.md","reason":"Preserve selected grid semantics, original-edge coverage, finite angular separation, MVIE and MPPI contracts."}
+{"file":".trellis/spec/planning-runtime/ros-interfaces-and-config.md","reason":"Source validity, TF and launch propagation; preserve actual STOP heartbeat."}
+{"file":".trellis/spec/operator-visualization/markers-and-topics.md","reason":"Transient body/social hull markers with stable namespaces and correct frames."}
+{"file":".trellis/spec/python-tools/index.md","reason":"Extend existing lightweight deterministic pedestrian simulator only."}
+{"file":".trellis/spec/planning-runtime/build-test-quality.md","reason":"Isolated catkin_tools build and actual manager regressions."}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"Trace source header, transforms, validity, corridor failure and marker clearing."}
+{"file":".trellis/spec/guides/code-reuse-thinking-guide.md","reason":"One FIRI implementation and reuse existing ROS TF/simulator/STOP serializer."}

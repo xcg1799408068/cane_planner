@@ -1,8 +1,8 @@
 {
   "id": "autonomy-intervention-v1",
   "name": "autonomy-intervention-v1",
-  "title": "Autonomy-aware intervention V1",
-  "description": "",
+  "title": "Planner-3 current-frame dynamic walking corridor",
+  "description": "Approved first single-pedestrian extension of the existing static FIRI pipeline against 96bc339; historical intervention scope abandoned.",
   "status": "in_progress",
   "dev_type": null,
   "scope": null,

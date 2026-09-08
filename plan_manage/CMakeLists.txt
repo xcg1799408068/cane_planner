@@ -79,6 +79,7 @@ if(CATKIN_ENABLE_TESTING)
     src/planner_manager.cpp
   )
   if(TARGET test_sim_odom_stop)
+    target_compile_definitions(test_sim_odom_stop PRIVATE CANE_MANAGER_INTERLEAVING_TEST)
     add_dependencies(test_sim_odom_stop ${catkin_EXPORTED_TARGETS})
     target_link_libraries(test_sim_odom_stop
       ${catkin_LIBRARIES}

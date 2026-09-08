@@ -76,6 +76,10 @@ class Pedestrian:
 class PedestrianSim:
     def __init__(self):
         rospy.init_node("pedestrian_sim")
+        # These configured coordinates belong to this frame; no TF relabeling.
+        self.frame_id = rospy.get_param("~frame_id", "map")
+        if not isinstance(self.frame_id, str) or not self.frame_id:
+            raise ValueError("frame_id must be a nonempty coordinate frame")
 
         # Publishers
         self.obs_pub = rospy.Publisher(
@@ -145,7 +149,7 @@ class PedestrianSim:
     def publish_obstacles(self):
         msg = DynamicObstacles()
         msg.header.stamp = rospy.Time.now()
-        msg.header.frame_id = "map"
+        msg.header.frame_id = self.frame_id
         # Only publish active pedestrians (in trigger mode: not yet walked full period)
         active = [p for p in self.pedestrians
                   if p.mode != "trigger" or p.active]
@@ -159,7 +163,7 @@ class PedestrianSim:
     def publish_viz(self):
         arr = MarkerArray()
         del_mk = Marker()
-        del_mk.header.frame_id = "map"
+        del_mk.header.frame_id = self.frame_id
         del_mk.header.stamp = rospy.Time.now()
         del_mk.action = Marker.DELETEALL
         arr.markers.append(del_mk)
@@ -171,7 +175,7 @@ class PedestrianSim:
 
             # Bounding box
             mk = Marker()
-            mk.header.frame_id = "map"
+            mk.header.frame_id = self.frame_id
             mk.header.stamp = rospy.Time.now()
             mk.ns = "ped_{}".format(p.pid)
             mk.id = 0
@@ -197,7 +201,7 @@ class PedestrianSim:
 
             # Velocity arrow
             mk2 = Marker()
-            mk2.header.frame_id = "map"
+            mk2.header.frame_id = self.frame_id
             mk2.header.stamp = rospy.Time.now()
             mk2.ns = "ped_{}_vel".format(p.pid)
             mk2.id = 0

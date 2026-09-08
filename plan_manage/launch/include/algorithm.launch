@@ -8,6 +8,7 @@
     <!-- simulation param -->
     <arg name="simulation"/>
     <arg name="planner"/> <!-- A*:1, kinodynamic:2, LFPC-MPPI:3, kinematic MPPI:4 -->
+    <arg name="use_pedestrians" default="false"/>
     <arg name="gazebo_sim" default="false"/>
     <arg name="map_simulation" default="false"/>  <!-- SDF map sync mode: false=cloud+odom, true=cloud+pose -->
     <arg name="slice_height"/>
@@ -84,6 +85,7 @@
         <remap from="/odom_world" to="$(arg odometry_world)"/>
 
         <!-- planner manager -->
+        <param name="use_pedestrians" value="$(arg use_pedestrians)" type="bool"/>
         <param name="manager/sim_speed" value="1.0" type="double"/>
         <param name="manager/global_wp_spacing" value="1.0" type="double"/>
         <param name="manager/global_wp_arrival_radius" value="$(arg global_wp_arrival_radius)" type="double"/>

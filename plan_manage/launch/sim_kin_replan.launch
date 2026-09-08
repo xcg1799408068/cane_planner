@@ -30,7 +30,8 @@
     <arg name="map_odom_override_topic" default="/sim_odom"/>
     <arg name="convex_corridor_local_radius" default="3.0"/>
     <arg name="convex_corridor_max_segment_length" default="1.0"/>
-    <arg name="pedestrian_scenario" default="mixed"/>
+    <arg name="use_pedestrians" default="$(eval arg('planner') != 3)"/>
+    <arg name="pedestrian_scenario" default="$(eval 'dwcg_crossing' if arg('planner') == 3 else 'mixed')"/>
     <arg name="use_static_global_map" default="false"/>
     <arg name="use_static_global_esdf" default="false"/>
     <arg name="static_map_pcd" default="$(find map_generator)/resource/office2_modify.pcd"/>
@@ -54,6 +55,7 @@
     <!-- unified planner (A*/kinodynamic/MPC all via kin_replan_node FSM) -->
     <include file="$(find plan_manage)/launch/include/algorithm.launch">
         <arg name="planner" value="$(arg planner)"/>
+        <arg name="use_pedestrians" value="$(arg use_pedestrians)"/>
         <arg name="odometry_topic" value = "$(arg odometry_topic)"/>
         <arg name="odometry_world" value = "$(arg odometry_topic)"/>
         <arg name="cloud_topic" value = "/simulation_generator/global_cloud"/>
@@ -130,12 +132,12 @@
 
     <node pkg="tf2_ros" type="static_transform_publisher" name="body2cane_base" args="0 0 0 0 0 0 /base_link /cane_base" />
 
-    <!-- Planner 3 is a static-navigation baseline; other planner defaults stay unchanged. -->
-    <arg name="use_pedestrians" default="$(eval arg('planner') != 3)"/>
+    <!-- Disabled source retains static mode; enabled requires fresh valid frames. -->
     <group if="$(arg use_pedestrians)">
         <node pkg="plan_manage" type="pedestrian_sim.py" name="pedestrian_sim" output="screen">
             <!-- trigger mode: pedestrian stays at start, walks once on goal, then disappears.
                  loop mode repeats continuously. -->
+            <param name="frame_id" value="$(eval 'world' if arg('planner') == 3 else 'map')"/>
             <param name="scenario" value="$(arg pedestrian_scenario)"/>
             <param name="scenario_config" value="$(find plan_manage)/config/pedestrian_scenarios.yaml"/>
         </node>

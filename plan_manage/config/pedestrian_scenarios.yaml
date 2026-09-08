@@ -1,3 +1,12 @@
+# First current-frame DWCG scenarios: one pedestrian, coordinates in configured
+# simulator frame (planner-3 launches explicitly use world). Trigger on goal.
+dwcg_approach:
+  - {start: [3.0, 1.2, 0.0], vel: [-0.4, 0.0, 0.0], size: [0.5, 0.5, 1.7], period: 8.0, mode: trigger}
+dwcg_crossing:
+  - {start: [2.0, -2.0, 0.0], vel: [0.0, 0.4, 0.0], size: [0.5, 0.5, 1.7], period: 10.0, mode: trigger}
+dwcg_stationary:
+  - {start: [2.0, 0.0, 0.0], vel: [0.0, 0.0, 0.0], size: [0.5, 0.5, 1.7], period: 15.0, mode: trigger}
+
 mixed:
   # 横向穿越
   - {start: [1.0, 2.5, 0.0], vel: [0.0, 0.5, 0.0], size: [0.5, 0.5, 1.7], period: 4.0, mode: trigger}

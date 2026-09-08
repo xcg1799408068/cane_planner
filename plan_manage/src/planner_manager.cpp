@@ -249,6 +249,18 @@ std::vector<Eigen::Vector2d> buildHumanCaneFootprintWorld(
             nh.param("convex_corridor/optimizer_iterations", cfg.optimizer_iterations, 150);
             nh.param("convex_corridor/max_regions", cfg.max_regions, 100);
             convex_corridor_->setConfig(cfg);
+            nh.param("use_pedestrians", pedestrians_enabled_, false);
+            nh.param("pedestrian/max_age", pedestrian_max_age_, .5);
+            nh.param("pedestrian/safety_radius", pedestrian_config_.safety_radius, .4);
+            nh.param("pedestrian/wall_gain", pedestrian_config_.wall_gain, 1.);
+            nh.param("pedestrian/system_gain", pedestrian_config_.system_gain, 1.);
+            nh.param("pedestrian/decay_length", pedestrian_config_.decay_length, .5);
+            nh.param("pedestrian/fov_amplification", pedestrian_config_.fov_amplification, 2.);
+            nh.param("pedestrian/alpha", pedestrian_config_.alpha, .3);
+            nh.param("pedestrian/max_force", pedestrian_config_.max_force, 4.);
+            nh.param("pedestrian/max_extension", pedestrian_config_.max_extension, 1.5);
+            nh.param("pedestrian/influence_distance", pedestrian_config_.influence_distance, 3.);
+            nh.param("pedestrian/max_seconds", pedestrian_config_.max_seconds, .02);
             astar_finder_->setCorridorEdgeClearance(cfg.clearance);
             corridor_failure_directory_ = defaultCorridorFailureDirectory();
             if (corridor_failure_directory_.empty())
@@ -1163,14 +1175,26 @@ std::vector<Eigen::Vector2d> buildHumanCaneFootprintWorld(
         }
     }
 
-    ConvexCorridor::Result PlannerManager::updateAndPublishConvexCorridor(
-        const Eigen::Vector3d& current_pose)
+    ConvexCorridor::Result PlannerManager::updateAndPublishConvexCorridorLocked(
+        const Eigen::Vector3d& current_pose, PedestrianFrameToken* used_frame)
     {
         ConvexCorridor::Result result;
+        // Caller holds the observation transaction mutex through MPPI/execution.
+        if (used_frame) *used_frame = {pedestrian_generation_, pedestrians_enabled_,
+                                      pedestrian_header_.stamp, pedestrian_receipt_};
+#ifdef CANE_MANAGER_INTERLEAVING_TEST
+        if (geometry_locked_test_hook_) geometry_locked_test_hook_();
+#endif
+        pedestrian_geometry_.clear();
+        if (pedestrians_enabled_ && !pedestrianDataValid(ros::Time::now())) {
+            result.failure_reason = ConvexCorridor::FailureReason::DYNAMIC_DATA_INVALID;
+            publishConvexCorridorLocked(result);
+            return result;
+        }
         if (!convex_corridor_)
         {
             result.failure_reason = ConvexCorridor::FailureReason::INVALID_INPUT;
-            publishConvexCorridor(result);
+            publishConvexCorridorLocked(result);
             return result;
         }
 
@@ -1198,7 +1222,7 @@ std::vector<Eigen::Vector2d> buildHumanCaneFootprintWorld(
         if (reference_path.size() < 2 || !collision_)
         {
             result.failure_reason = ConvexCorridor::FailureReason::INVALID_INPUT;
-            publishConvexCorridor(result);
+            publishConvexCorridorLocked(result);
             return result;
         }
 
@@ -1217,20 +1241,41 @@ std::vector<Eigen::Vector2d> buildHumanCaneFootprintWorld(
             ROS_WARN_THROTTLE(1.0, "[StaticCorridor] grid unavailable: %s", reason.c_str());
         } else {
             grid.width = size.x(); grid.height = size.y();
-            result = convex_corridor_->buildStatic(reference_path, grid);
+            std::vector<ConvexCorridor::Polygon> polygons;
+            if (pedestrians_enabled_) for (const auto& observation:pedestrian_observations_) {
+                const auto geometry=PedestrianPolygon::build(observation,current_pose,grid,pedestrian_config_);
+                if (!geometry.valid) {
+                    pedestrian_data_reason_=geometry.reason;
+                    pedestrian_geometry_.clear();
+                    result.failure_reason=ConvexCorridor::FailureReason::DYNAMIC_DATA_INVALID;
+                    publishConvexCorridorLocked(result); return result;
+                }
+                pedestrian_geometry_.push_back(geometry); polygons.push_back(geometry.hull);
+            }
+            result = convex_corridor_->buildStatic(reference_path, grid, polygons);
+            // Recheck after cooperative numerical work; never execute a stale frame.
+            if (pedestrians_enabled_ && !pedestrianDataValid(ros::Time::now())) {
+                result=ConvexCorridor::Result();
+                result.failure_reason=ConvexCorridor::FailureReason::DYNAMIC_DATA_INVALID;
+                pedestrian_geometry_.clear();
+            }
             std::string snapshot_file, snapshot_error;
-            const auto capture = corridor_failure_capture_.saveOnce(corridor_failure_directory_,
-                grid, reference_path, convex_corridor_->getConfig(), result, snapshot_file, snapshot_error);
-            if (capture == CorridorFailureCapture::Status::SAVED)
-                ROS_WARN("[StaticCorridor] saved first failure snapshot: %s", snapshot_file.c_str());
-            else if (capture == CorridorFailureCapture::Status::IO_ERROR)
-                ROS_ERROR("[StaticCorridor] first failure snapshot failed (no retry until new goal): %s", snapshot_error.c_str());
+            if (polygons.empty() && result.failure_reason!=ConvexCorridor::FailureReason::DYNAMIC_DATA_INVALID) {
+                const auto capture = corridor_failure_capture_.saveOnce(corridor_failure_directory_,
+                    grid, reference_path, convex_corridor_->getConfig(), result, snapshot_file, snapshot_error);
+                if (capture == CorridorFailureCapture::Status::SAVED)
+                    ROS_WARN("[StaticCorridor] saved first failure snapshot: %s", snapshot_file.c_str());
+                else if (capture == CorridorFailureCapture::Status::IO_ERROR)
+                    ROS_ERROR("[StaticCorridor] first failure snapshot failed (no retry until new goal): %s", snapshot_error.c_str());
+            } else if (!result.feasible) {
+                ROS_WARN_THROTTLE(1., "[Corridor] snapshot=DYNAMIC_INPUT_NOT_CAPTURED; static replay would be incomplete");
+            }
         }
-        publishConvexCorridor(result);
+        publishConvexCorridorLocked(result);
         return result;
     }
 
-    void PlannerManager::publishConvexCorridor(const ConvexCorridor::Result& result)
+    void PlannerManager::publishConvexCorridorLocked(const ConvexCorridor::Result& result)
     {
         if (!result.feasible)
             ROS_WARN_THROTTLE(1.0, "[StaticCorridor] reason=%s segment=%d position_valid=%d x=%.3f y=%.3f s=%.3f%s",
@@ -1261,6 +1306,23 @@ std::vector<Eigen::Vector2d> buildHumanCaneFootprintWorld(
             }
             markers.markers.push_back(fill);
         }
+        for (size_t i=0;i<pedestrian_geometry_.size();++i) {
+            const auto& geometry=pedestrian_geometry_[i];
+            for (int social=0;social<2;++social) {
+                visualization_msgs::Marker marker;
+                marker.header=clear.header; marker.id=i;
+                marker.ns=social?"mpc_pedestrian_social_hull":"mpc_pedestrian_body";
+                marker.action=visualization_msgs::Marker::ADD; marker.type=visualization_msgs::Marker::LINE_STRIP;
+                marker.pose.orientation.w=1.; marker.scale.x=social?.025:.045;
+                marker.color.r=1.; marker.color.g=social?.65:.15; marker.color.a=.9;
+                marker.lifetime=ros::Duration(.3);
+                for (const auto& p:(social?geometry.hull:geometry.body)) {
+                    geometry_msgs::Point q; q.x=p.x();q.y=p.y();q.z=social?.2:.22;marker.points.push_back(q);
+                }
+                if (!marker.points.empty()) marker.points.push_back(marker.points.front());
+                markers.markers.push_back(marker);
+            }
+        }
         if(mpc_convex_corridor_pub_)mpc_convex_corridor_pub_.publish(markers);
         if(mpc_convex_corridor_debug_pub_) {
             std_msgs::String debug;std::ostringstream ss;
@@ -1271,6 +1333,10 @@ std::vector<Eigen::Vector2d> buildHumanCaneFootprintWorld(
                << " failure_x=" << result.failure_position.x() << " failure_y=" << result.failure_position.y()
                << " min_overlap_area=" << result.min_overlap_area << " min_overlap_depth=" << result.min_overlap_depth
                << " seconds=" << result.elapsed_seconds << " overlap_is_geometric_not_lfpc_guarantee"
+               << " pedestrians_enabled=" << pedestrians_enabled_
+               << " pedestrian_data=" << (pedestrians_enabled_?pedestrian_data_reason_:"DISABLED")
+               << " pedestrian_count=" << pedestrian_geometry_.size()
+               << " snapshot=" << (pedestrians_enabled_?"DYNAMIC_INPUT_NOT_CAPTURED_IF_NONEMPTY":"STATIC")
                << ConvexCorridor::diagnosticsText(result);
             debug.data=ss.str();mpc_convex_corridor_debug_pub_.publish(debug);
         }
@@ -1284,7 +1350,7 @@ std::vector<Eigen::Vector2d> buildHumanCaneFootprintWorld(
         double yaw = QuatenionToYaw(msg->pose.orientation);
         if (shouldIgnoreDuplicateGoal(new_goal, yaw, "2D Nav"))
             return;
-        corridor_failure_capture_.resetForGoal();
+        resetCorridorForGoal();
         end_pt_ = new_goal;
         end_state_(0) = msg->pose.position.x;
         end_state_(1) = msg->pose.position.y;
@@ -1313,7 +1379,7 @@ std::vector<Eigen::Vector2d> buildHumanCaneFootprintWorld(
         double yaw = QuatenionToYaw(msg->poses[0].pose.orientation);
         if (shouldIgnoreDuplicateGoal(new_goal, yaw, "waypoint"))
             return;
-        corridor_failure_capture_.resetForGoal();
+        resetCorridorForGoal();
         end_pt_ = new_goal;
         end_state_(0) = msg->poses[0].pose.position.x;
         end_state_(1) = msg->poses[0].pose.position.y;
@@ -1495,8 +1561,131 @@ std::vector<Eigen::Vector2d> buildHumanCaneFootprintWorld(
         mpc_dynamic_body_pub_.publish(markers);
     }
 
+    void PlannerManager::resetCorridorForGoal()
+    {
+        std::lock_guard<std::mutex> lock(dynObsMutex_);
+        corridor_failure_capture_.resetForGoal();
+        if (planner_==3) {
+            ++pedestrian_generation_; // invalidate an outstanding plan on goal reset too
+            clearPedestrianMarkersLocked();
+        }
+    }
+
+    bool PlannerManager::authorizePedestrianFrameLocked(const PedestrianFrameToken& frame,
+                                                        const ros::Time& now)
+    {
+        if (frame.generation != pedestrian_generation_ || frame.enabled != pedestrians_enabled_) {
+            pedestrian_data_reason_ = "OBSERVATION_REPLACED";
+            return false;
+        }
+        if (!frame.enabled) return true;
+        // Inspect the immutable timestamps used for geometry, never a newer cache.
+        const double age=(now-frame.stamp).toSec(), receipt_age=(now-frame.receipt).toSec();
+        if (now.isZero() || age<0. || receipt_age<0. || age>pedestrian_max_age_ || receipt_age>pedestrian_max_age_) {
+            pedestrian_data_reason_="PLANNED_FRAME_EXPIRED";
+            return false;
+        }
+        return pedestrianDataValid(now);
+    }
+
+    void PlannerManager::clearPedestrianMarkersLocked()
+    {
+        pedestrian_geometry_.clear();
+        if (!mpc_convex_corridor_pub_) return;
+        visualization_msgs::MarkerArray markers;
+        for(const char* ns:{"mpc_pedestrian_body","mpc_pedestrian_social_hull"}) {
+            visualization_msgs::Marker marker;marker.header.frame_id="world";
+            marker.header.stamp=ros::Time::now();marker.ns=ns;marker.id=0;
+            marker.action=visualization_msgs::Marker::DELETE;markers.markers.push_back(marker);
+        }
+        mpc_convex_corridor_pub_.publish(markers);
+    }
+
+    bool PlannerManager::pedestrianDataValid(const ros::Time& now)
+    {
+        if (!std::isfinite(pedestrian_max_age_) || pedestrian_max_age_ <= 0. || pedestrian_max_age_ > 2. ||
+            !PedestrianPolygon::validConfig(pedestrian_config_)) {
+            pedestrian_data_reason_ = "INVALID_CONFIG"; return false;
+        }
+        if (!pedestrian_frame_valid_) return false;
+        const double age = (now - pedestrian_header_.stamp).toSec();
+        const double receipt_age = (now - pedestrian_receipt_).toSec();
+        if (now.isZero() || age < 0. || receipt_age < 0. || age > pedestrian_max_age_ || receipt_age > pedestrian_max_age_) {
+            pedestrian_data_reason_ = "STALE_OR_FUTURE_FRAME"; return false;
+        }
+        pedestrian_data_reason_ = "OK";
+        return true;
+    }
+
+    void PlannerManager::receivePedestrians(const onboard_detector::DynamicObstacles::ConstPtr& msg,
+                                             const ros::Time& receipt)
+    {
+        // Invalid observations replace rather than preserve previous valid state.
+        pedestrian_frame_valid_ = false;
+        pedestrian_header_ = msg->header;
+        pedestrian_receipt_ = receipt; // callback entry time, before transaction-lock waiting
+        pedestrian_observations_.clear(); pedestrian_geometry_.clear();
+        pedestrian_positions_.clear(); pedestrian_velocities_.clear(); pedestrian_full_sizes_.clear();
+        pedestrian_data_reason_ = "MALFORMED_FRAME";
+        if (msg->num > 1 || msg->position.size() != size_t(msg->num) ||
+            msg->velocity.size() != size_t(msg->num) || msg->size.size() != size_t(msg->num)) return;
+        if (msg->header.stamp.isZero() || msg->header.frame_id.empty() ||
+            pedestrian_receipt_.isZero() || msg->header.stamp>pedestrian_receipt_ ||
+            !std::isfinite(pedestrian_max_age_) || pedestrian_max_age_<=0. ||
+            (pedestrian_receipt_-msg->header.stamp).toSec()>pedestrian_max_age_) {
+            pedestrian_data_reason_ = "INVALID_HEADER"; return;
+        }
+        // Resolve even an empty foreign-frame observation: no map/world relabeling.
+        tf::StampedTransform transform;
+        transform.setIdentity();
+        try {
+            if (msg->header.frame_id != "world")
+                tf_listener_.lookupTransform("world", msg->header.frame_id, msg->header.stamp, transform);
+        } catch (const tf::TransformException&) {
+            pedestrian_data_reason_ = "TRANSFORM_UNAVAILABLE"; return;
+        }
+        for (size_t i=0; i<size_t(msg->num); ++i) {
+            const auto& p=msg->position[i]; const auto& v=msg->velocity[i]; const auto& s=msg->size[i];
+            Eigen::Vector3d position(p.x,p.y,p.z), velocity(v.x,v.y,v.z), size(s.x,s.y,s.z);
+            if (!position.allFinite() || position.cwiseAbs().maxCoeff()>1e4 || !velocity.allFinite() ||
+                velocity.norm()>10 || !size.allFinite() || size.minCoeff()<.01 || size.maxCoeff()>4) return;
+            const tf::Vector3 tp=transform*tf::Vector3(p.x,p.y,p.z);
+            const tf::Vector3 tv=transform.getBasis()*tf::Vector3(v.x,v.y,v.z);
+            position=Eigen::Vector3d(tp.x(),tp.y(),tp.z());
+            velocity=Eigen::Vector3d(tv.x(),tv.y(),tv.z());
+            // Rotation of the complete 3D axis-aligned box: |R|*full_size is a
+            // conservative world-axis box including every transformed corner.
+            Eigen::Vector3d extent=Eigen::Vector3d::Zero();
+            for(int row=0;row<3;++row)for(int col=0;col<3;++col)
+                extent[row]+=std::abs(transform.getBasis()[row][col])*size[col];
+            PedestrianPolygon::Observation observation;
+            observation.position=position.head<2>(); observation.velocity=velocity.head<2>();
+            observation.full_size=extent.head<2>();
+            if (!position.allFinite() || !velocity.allFinite() || !extent.allFinite() ||
+                !PedestrianPolygon::validObservation(observation)) return;
+            pedestrian_observations_.push_back(observation);
+            pedestrian_positions_.push_back(Eigen::Vector3d(p.x,p.y,p.z));
+            pedestrian_velocities_.push_back(Eigen::Vector3d(v.x,v.y,v.z));
+            pedestrian_full_sizes_.push_back(size); // source values retained with original header
+        }
+        pedestrian_frame_valid_=true;
+        pedestrianDataValid(pedestrian_receipt_);
+    }
+
     void PlannerManager::dynamicObstaclesCallback(const onboard_detector::DynamicObstacles::ConstPtr &msg)
     {
+        if (planner_ == 3) {
+            const ros::Time receipt = ros::Time::now();
+#ifdef CANE_MANAGER_INTERLEAVING_TEST
+            if (pedestrian_callback_entry_test_hook_) pedestrian_callback_entry_test_hook_();
+#endif
+            std::lock_guard<std::mutex> lock(dynObsMutex_);
+            if (!pedestrians_enabled_) return; // disabled sources cannot invalidate static plans
+            ++pedestrian_generation_; // includes malformed and same-stamp enabled frames
+            receivePedestrians(msg, receipt);
+            if (!pedestrian_frame_valid_ || pedestrian_observations_.empty()) clearPedestrianMarkersLocked();
+            return;
+        }
         publishDynamicObstacleBodies(msg);
 
         std::lock_guard<std::mutex> lock(dynObsMutex_);
@@ -1528,6 +1717,10 @@ std::vector<Eigen::Vector2d> buildHumanCaneFootprintWorld(
         static bool success1 = false;
         static bool success2 = false;
         fsm_num++;
+        if (planner_==3 && pedestrians_enabled_) {
+            std::lock_guard<std::mutex> lock(dynObsMutex_);
+            if (!pedestrianDataValid(ros::Time::now())) clearPedestrianMarkersLocked();
+        }
         if (fsm_num == 100)
         {
             fsm_num = 0;
@@ -2257,26 +2450,52 @@ std::vector<Eigen::Vector2d> buildHumanCaneFootprintWorld(
         }
 
         // MPC规划一步
-        // Planner 3 is a static-navigation baseline, not dynamic avoidance.
-        auto convex_corridor_result = updateAndPublishConvexCorridor(current_com);
+        // Current-frame geometry enters only the existing mandatory union check.
+        // One accepted-observation transaction: no replacement gap during MPPI.
+        // Waiting callbacks are ordered after commit, not checked by this cycle.
+        std::unique_lock<std::mutex> execution_lock(dynObsMutex_);
+        PedestrianFrameToken captured_frame;
+        auto convex_corridor_result = updateAndPublishConvexCorridorLocked(current_com, &captured_frame);
+        const PedestrianFrameToken planned_frame = captured_frame;
         if (convex_corridor_ && convex_corridor_result.feasible)
             mpc_controller_->setConvexCorridor(convex_corridor_result.segments);
         else
             mpc_controller_->clearConvexCorridor();
 
         Eigen::Vector3d control = mpc_controller_->plan(lfpc_model_, mpc_sim_goal_);
+#ifdef CANE_MANAGER_INTERLEAVING_TEST
+        if (after_mppi_test_hook_) after_mppi_test_hook_();
+#endif
+        // Original snapshot must still be fresh even though replacement is queued.
+        if (!authorizePedestrianFrameLocked(planned_frame, ros::Time::now())) {
+            convex_corridor_result=ConvexCorridor::Result();
+            convex_corridor_result.failure_reason=ConvexCorridor::FailureReason::DYNAMIC_DATA_INVALID;
+            mpc_controller_->clearConvexCorridor();
+            clearPedestrianMarkersLocked();
+            publishConvexCorridorLocked(convex_corridor_result);
+        }
+        Eigen::Vector3d new_com = current_com;
+        if (convex_corridor_result.feasible && mpc_controller_->lastPlanValid()) {
+            // Integrate immediately after authorization, before debug/visual output.
+            lfpc_model_->SetCtrlParams(control);
+            lfpc_model_->updateOneStep();
+            const auto step_path = lfpc_model_->getStepCOMPath();
+            for (const auto& pt : step_path) mpc_step_path_.push_back(pt);
+            lfpc_model_->prepareNextStep();
+            new_com = lfpc_model_->getCOMPos();
+        }
         if (mpc_debug_enable_)
         {
             const auto dbg = mpc_controller_->getDebugMetrics();
             std_msgs::Float64MultiArray metrics;
-            metrics.data.reserve(23);
+            metrics.data.reserve(26);
             // Preserve legacy positions 0-18. Dynamic values remain unavailable
             // (-1); index 11 remains legacy DWC rejects (zero). Index 12 is
             // convex rejects. Explicit static mode and weighted result append.
             std_msgs::MultiArrayDimension mode;
-            mode.label = "planner3_static_union_v1;19=static,20=weighted_checked,21=weighted_fallback,22=executed_cost";
-            mode.size = 23;
-            mode.stride = 23;
+            mode.label = "planner3_static_union_v1;19=static,20=weighted_checked,21=weighted_fallback,22=executed_cost;23=pedestrian_source_enabled,24=current_frame_corridor_feasible,25=corridor_failure_reason";
+            mode.size = 26;
+            mode.stride = 26;
             metrics.layout.dim.push_back(mode);
             metrics.data.push_back(dbg.plan_time_ms);
             metrics.data.push_back(dbg.valid_sample_ratio);
@@ -2301,13 +2520,19 @@ std::vector<Eigen::Vector2d> buildHumanCaneFootprintWorld(
             metrics.data.push_back(dbg.weighted_checked ? 1.0 : 0.0);
             metrics.data.push_back(dbg.weighted_fallback ? 1.0 : 0.0);
             metrics.data.push_back(std::isfinite(dbg.executed_total_cost) ? dbg.executed_total_cost : -1.0);
+            metrics.data.push_back(pedestrians_enabled_ ? 1.0 : 0.0);
+            metrics.data.push_back(convex_corridor_result.feasible ? 1.0 : 0.0);
+            metrics.data.push_back(static_cast<double>(convex_corridor_result.failure_reason));
             mpc_debug_metrics_pub_.publish(metrics);
         }
 
         const auto dbg = mpc_controller_->getDebugMetrics();
-        const bool stop_advice = !mpc_controller_->lastPlanValid();
+        const bool stop_advice = !convex_corridor_result.feasible || !mpc_controller_->lastPlanValid();
         const std::string stop_reason = stop_advice ?
-            (convex_corridor_result.feasible ? "NO_FEASIBLE_TRAJECTORY" : "INVALID_STATIC_CORRIDOR") : "OK";
+            (convex_corridor_result.feasible ? "NO_FEASIBLE_TRAJECTORY" :
+                (convex_corridor_result.failure_reason==ConvexCorridor::FailureReason::DYNAMIC_DATA_INVALID ||
+                 convex_corridor_result.failure_reason==ConvexCorridor::FailureReason::DYNAMIC_REFERENCE_BLOCKED ?
+                    ConvexCorridor::failureReasonName(convex_corridor_result.failure_reason) : "INVALID_STATIC_CORRIDOR")) : "OK";
         std_msgs::Bool stop_msg;
         stop_msg.data = stop_advice;
         mpc_stop_advice_pub_.publish(stop_msg);
@@ -2367,19 +2592,6 @@ std::vector<Eigen::Vector2d> buildHumanCaneFootprintWorld(
             }
         }
 
-        // 正常步进
-        lfpc_model_->SetCtrlParams(control);
-        lfpc_model_->updateOneStep();
-
-        // 收集子步路径
-        std::vector<Eigen::Vector3d> step_path = lfpc_model_->getStepCOMPath();
-        for (const auto& pt : step_path)
-            mpc_step_path_.push_back(pt);
-
-        lfpc_model_->prepareNextStep();
-
-        Eigen::Vector3d new_com = lfpc_model_->getCOMPos();
-
         // Gazebo: virtual human push. The cane has no lateral drive; we command
         // forward speed plus yaw rate, and use the steering joint only for the
         // bottom wheel visual.
@@ -2426,6 +2638,7 @@ std::vector<Eigen::Vector2d> buildHumanCaneFootprintWorld(
         publishWaypointsList();
 
         // 增量发布可视化（每步更新）
+        execution_lock.unlock(); // no pedestrian state below; do not hold over ROS sleep
         displayMpcPlan();
         publishMpcPath();
 

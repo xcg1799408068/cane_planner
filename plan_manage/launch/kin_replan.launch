@@ -1,5 +1,7 @@
 <launch>
     <arg name="planner" default="2"/>
+    <!-- Enable only with an actual detector source; missing data fails closed. -->
+    <arg name="use_pedestrians" default="false"/>
     <!-- Planner 3: soft preference only; 1x penalty over 0.8 m additional clearance. -->
     <arg name="astar_w_clearance" default="$(eval 1.0 if arg('planner') == 3 else 0.0)"/>
     <arg name="astar_clearance_sigma" default="0.8"/>
@@ -16,6 +18,7 @@
     <include file="$(find plan_manage)/launch/include/algorithm.launch">
         <!-- choose planner A*:1 kin:2 -->
         <arg name="planner" value="$(arg planner)"/>
+        <arg name="use_pedestrians" value="$(arg use_pedestrians)"/>
         <arg name="astar_w_clearance" value="$(arg astar_w_clearance)"/>
         <arg name="astar_clearance_sigma" value="$(arg astar_clearance_sigma)"/>
         <!-- odom -->

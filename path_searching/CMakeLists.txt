@@ -38,6 +38,7 @@ include_directories(
 
 add_library(convex_corridor
     src/convex_corridor.cpp
+    src/pedestrian_polygon.cpp
     src/corridor_failure_snapshot.cpp
     )
 target_link_libraries(convex_corridor
@@ -66,6 +67,8 @@ add_executable(convex_corridor_replay src/convex_corridor_replay.cpp)
 target_link_libraries(convex_corridor_replay convex_corridor)
 
 if(CATKIN_ENABLE_TESTING)
+  catkin_add_gtest(test_pedestrian_polygon test/test_pedestrian_polygon.cpp)
+  target_link_libraries(test_pedestrian_polygon convex_corridor)
   # White-box target includes convex_corridor.cpp; do not link a second copy.
   catkin_add_gtest(test_mvie_roundoff test/test_mvie_roundoff.cpp src/corridor_failure_snapshot.cpp)
   target_link_libraries(test_mvie_roundoff ${NLOPT_LIBRARY} ${catkin_LIBRARIES})

@@ -34,7 +34,8 @@ public:
     enum class FailureReason {
         NONE, INVALID_INPUT, REFERENCE_OCCUPIED, DEGENERATE_PATH,
         NO_OVERLAP, NO_PROGRESS, NUMERICAL_FAILURE, OUTPUT_CERTIFICATE,
-        BUDGET, UNSUPPORTED_SCALE, UNSUPPORTED_BACKEND
+        BUDGET, UNSUPPORTED_SCALE, UNSUPPORTED_BACKEND,
+        DYNAMIC_REFERENCE_BLOCKED, DYNAMIC_DATA_INVALID
     };
     enum class FailureStage {
         NONE, INPUT, REGION_INIT, OBSTACLE_SEPARATION_SOLVE, MVIE_INIT_SLACK,
@@ -56,6 +57,7 @@ public:
         Diagnostics diagnostics;
         std::vector<Segment> segments;
         bool feasible = false;
+        bool has_dynamic_input = false; // static-only snapshot capture must reject
         FailureReason failure_reason = FailureReason::NONE;
         int failure_segment_index = -1;
         double failure_s = 0.;
@@ -69,7 +71,9 @@ public:
     static bool contains(const Segment&, const Eigen::Vector2d&, double tol = 1e-6);
     static double violation(const Segment&, const Eigen::Vector2d&);
     static double polygonArea(const std::vector<Eigen::Vector2d>&);
-    Result buildStatic(const std::vector<Eigen::Vector2d>&, const Grid&) const;
+    using Polygon = std::vector<Eigen::Vector2d>;
+    Result buildStatic(const std::vector<Eigen::Vector2d>&, const Grid&,
+                       const std::vector<Polygon>& dynamic_polygons = {}) const;
     void setConfig(const Config& c) { cfg_ = c; }
     const Config& getConfig() const { return cfg_; }
 private:

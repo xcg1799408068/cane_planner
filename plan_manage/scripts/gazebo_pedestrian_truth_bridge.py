@@ -28,6 +28,8 @@ class GazeboPedestrianTruthBridge:
                 r".*_(\d+(?:\.\d+)?)_(\d+(?:\.\d+)?)_(\d+(?:\.\d+)?)$"))
         self.default_size = self._vector_param("~default_size", [0.5, 0.5, 1.8])
         self.frame_id = rospy.get_param("~frame_id", "world")
+        if self.frame_id != "world":
+            raise ValueError("Gazebo ModelStates coordinates are world; arbitrary relabeling is invalid")
         self.publish_rate = float(rospy.get_param("~publish_rate", 15.0))
         self.center_z_from_size = bool(rospy.get_param("~center_z_from_size", True))
         self.publish_markers = bool(rospy.get_param("~publish_markers", True))
@@ -70,6 +72,11 @@ class GazeboPedestrianTruthBridge:
 
     def model_states_cb(self, msg):
         stamp = rospy.Time.now()
+        if len(msg.name) != len(msg.pose) or len(msg.name) != len(msg.twist):
+            # Stop emitting: consumer will expire the last real observation.
+            self.latest_msg = None
+            rospy.logerr_throttle(1.0, "Malformed Gazebo ModelStates arrays")
+            return
         dt = None
         if self.prev_stamp is not None:
             dt = (stamp - self.prev_stamp).to_sec()
@@ -114,7 +121,19 @@ class GazeboPedestrianTruthBridge:
     def publish(self, _event):
         if self.latest_msg is None:
             return
-        self.latest_msg.header.stamp = rospy.Time.now()
+        # Never refresh cached observation stamps: source timeout is not empty.
+        age = (rospy.Time.now() - self.latest_msg.header.stamp).to_sec()
+        if age < 0.0 or age > 0.5:
+            markers = MarkerArray()
+            clear = Marker()
+            clear.header.frame_id = self.frame_id
+            clear.header.stamp = rospy.Time.now()
+            clear.action = Marker.DELETEALL
+            markers.markers.append(clear)
+            self.dynamic_bbox_pub.publish(markers)
+            if self.publish_markers:
+                self.marker_pub.publish(markers)
+            return
         self.obs_pub.publish(self.latest_msg)
         self.dynamic_bbox_pub.publish(self.make_dynamic_bboxes(self.latest_msg))
         if self.publish_markers:

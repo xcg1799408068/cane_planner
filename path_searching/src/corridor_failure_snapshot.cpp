@@ -98,6 +98,7 @@ CorridorFailureCapture::Status CorridorFailureCapture::saveOnce(
     const std::string& directory,const C::Grid& grid,const std::vector<Eigen::Vector2d>& path,
     const C::Config& config,const C::Result& failure,std::string& file,std::string& error) {
     file.clear();error.clear();
+    if(failure.has_dynamic_input) {error="DYNAMIC_INPUT_NOT_CAPTURED";return Status::SKIPPED;}
     if(attempted_||!eligible(failure)||!validInput(grid,path))return Status::SKIPPED;
     attempted_=true;
     if(!makeDirectory(directory,error))return Status::IO_ERROR;
