@@ -312,6 +312,7 @@ std::vector<Eigen::Vector2d> buildHumanCaneFootprintWorld(
         risk_field_pub_ = nh.advertise<sensor_msgs::PointCloud2>("/mpc/risk_field", 1);
         risk_halo_pub_ = nh.advertise<sensor_msgs::PointCloud2>("/mpc/risk_halo", 1);
         mpc_best_traj_pub_ = nh.advertise<visualization_msgs::Marker>("/mpc/best_traj", 10);
+        transaction_diag_pub_ = nh.advertise<std_msgs::Float64MultiArray>("/mpc/transaction_diagnostics",10);
         mpc_debug_metrics_pub_ = nh.advertise<std_msgs::Float64MultiArray>("/mpc/debug_metrics", 10);
         mpc_stop_advice_pub_ = nh.advertise<std_msgs::Bool>("/mpc/stop_advice", 10);
         mpc_stop_reason_pub_ = nh.advertise<std_msgs::String>("/mpc/stop_reason", 10);
@@ -1185,6 +1186,7 @@ std::vector<Eigen::Vector2d> buildHumanCaneFootprintWorld(
 #ifdef CANE_MANAGER_INTERLEAVING_TEST
         if (geometry_locked_test_hook_) geometry_locked_test_hook_();
 #endif
+        dynamic_recovery_reason_="NOT_NEEDED";dynamic_recovery_seconds_=0.;
         pedestrian_geometry_.clear();
         if (pedestrians_enabled_ && !pedestrianDataValid(ros::Time::now())) {
             result.failure_reason = ConvexCorridor::FailureReason::DYNAMIC_DATA_INVALID;
@@ -1252,7 +1254,12 @@ std::vector<Eigen::Vector2d> buildHumanCaneFootprintWorld(
                 }
                 pedestrian_geometry_.push_back(geometry); polygons.push_back(geometry.hull);
             }
+            const auto firi_started=std::chrono::steady_clock::now();
             result = convex_corridor_->buildStatic(reference_path, grid, polygons);
+            transaction_diag_[13]=std::chrono::duration<double>(std::chrono::steady_clock::now()-firi_started).count();
+            if (result.failure_reason==ConvexCorridor::FailureReason::DYNAMIC_REFERENCE_BLOCKED &&
+                pedestrians_enabled_ && pedestrianDataValid(ros::Time::now()))
+                result=recoverDynamicRouteLocked(current_pose,polygons,result);
             // Recheck after cooperative numerical work; never execute a stale frame.
             if (pedestrians_enabled_ && !pedestrianDataValid(ros::Time::now())) {
                 result=ConvexCorridor::Result();
@@ -1273,6 +1280,61 @@ std::vector<Eigen::Vector2d> buildHumanCaneFootprintWorld(
         }
         publishConvexCorridorLocked(result);
         return result;
+    }
+
+    ConvexCorridor::Result PlannerManager::recoverDynamicRouteLocked(const Eigen::Vector3d& pose,
+        const std::vector<ConvexCorridor::Polygon>& polygons,const ConvexCorridor::Result& blocked)
+    {
+        if(!astar_finder_ || polygons.size()!=1) {dynamic_recovery_reason_="RECOVERY_UNAVAILABLE";return blocked;}
+        ++dynamic_recovery_attempts_;dynamic_recovery_reason_="ATTEMPTED";
+        const PedestrianFrameToken frame{pedestrian_generation_,pedestrians_enabled_,pedestrian_header_.stamp,pedestrian_receipt_};
+        const auto began=std::chrono::steady_clock::now();
+        const double remaining=pedestrian_max_age_-std::max((ros::Time::now()-frame.stamp).toSec(),(ros::Time::now()-frame.receipt).toSec());
+        if(!std::isfinite(remaining) || remaining<=0) {dynamic_recovery_reason_="EXPIRED";return blocked;}
+        const auto deadline=began+std::chrono::duration_cast<std::chrono::steady_clock::duration>(std::chrono::duration<double>(std::min(.2,remaining*.5)));
+        const auto candidate=astar_finder_->searchRecovery(pose.head<2>(),end_pt_,polygons.front(),deadline);
+#ifdef CANE_MANAGER_INTERLEAVING_TEST
+        if(after_recovery_search_test_hook_)after_recovery_search_test_hook_();
+#endif
+        transaction_diag_[14]=candidate.seconds;
+        transaction_diag_[22]=candidate.profile.hard_seconds;
+        transaction_diag_[23]=candidate.profile.soft_seconds;
+        transaction_diag_[24]=candidate.profile.grid_seconds;
+        transaction_diag_[25]=candidate.profile.hard_calls;
+        transaction_diag_[26]=candidate.profile.soft_calls;
+        transaction_diag_[27]=candidate.profile.grid_calls;
+        transaction_diag_[28]=candidate.profile.expanded;
+        dynamic_recovery_seconds_=candidate.seconds;
+        if(candidate.status!=Astar::RecoveryStatus::FOUND) {
+            dynamic_recovery_reason_=candidate.status==Astar::RecoveryStatus::TIMEOUT?"TIMEOUT":
+                candidate.status==Astar::RecoveryStatus::INCOMPLETE_PATH?"EXACT_GOAL_UNAVAILABLE":"NO_PATH";
+            return blocked;
+        }
+        if(!authorizePedestrianFrameLocked(frame,ros::Time::now())) {dynamic_recovery_reason_="EXPIRED";return blocked;}
+        std::vector<Eigen::Vector2d> local{candidate.path.front()};double length=0.;
+        for(size_t i=1;i<candidate.path.size() && length<std::max(8.,2*lookahead_dist_);++i) {
+            length+=(candidate.path[i]-local.back()).norm();local.push_back(candidate.path[i]);
+        }
+        ConvexCorridor::Grid grid;Eigen::Vector2i size;std::string reason;
+        Eigen::Vector2d lo=local.front(),hi=lo;
+        for(const auto& p:local){lo=lo.cwiseMin(p);hi=hi.cwiseMax(p);}
+        const auto padding=Eigen::Vector2d::Constant(convex_corridor_->getConfig().local_radius).eval();
+        if(!collision_->getStaticCorridorGrid(lo-padding,hi+padding,grid.origin,grid.resolution,size,grid.blocked,reason)) {
+            dynamic_recovery_reason_="REBUILD_FAILED";return blocked;
+        }
+        grid.width=size.x();grid.height=size.y();
+        const auto rebuild_started=std::chrono::steady_clock::now();
+        auto rebuilt=convex_corridor_->buildStatic(local,grid,polygons); // SAME hull, not recomputed SFM
+        transaction_diag_[15]=std::chrono::duration<double>(std::chrono::steady_clock::now()-rebuild_started).count();
+        dynamic_recovery_seconds_=std::chrono::duration<double>(std::chrono::steady_clock::now()-began).count();
+        if(!rebuilt.feasible) {dynamic_recovery_reason_="REBUILD_FAILED";return rebuilt;}
+        if(!authorizePedestrianFrameLocked(frame,ros::Time::now())) {dynamic_recovery_reason_="EXPIRED";return blocked;}
+        global_waypoints_=candidate.path;global_wp_idx_=0;
+        reanchorWaypoint(pose.head<2>());
+        mpc_controller_->resetWarmStart();mpc_controller_->clearConvexCorridor();
+        dynamic_recovery_reason_="SUCCESS";
+        publishAstarPath();publishWaypointsList();publishCurrentWaypoint();
+        return rebuilt;
     }
 
     void PlannerManager::publishConvexCorridorLocked(const ConvexCorridor::Result& result)
@@ -1337,6 +1399,8 @@ std::vector<Eigen::Vector2d> buildHumanCaneFootprintWorld(
                << " pedestrian_data=" << (pedestrians_enabled_?pedestrian_data_reason_:"DISABLED")
                << " pedestrian_count=" << pedestrian_geometry_.size()
                << " snapshot=" << (pedestrians_enabled_?"DYNAMIC_INPUT_NOT_CAPTURED_IF_NONEMPTY":"STATIC")
+               << " recovery=" << dynamic_recovery_reason_ << " recovery_attempts=" << dynamic_recovery_attempts_
+               << " recovery_seconds=" << dynamic_recovery_seconds_
                << ConvexCorridor::diagnosticsText(result);
             debug.data=ss.str();mpc_convex_corridor_debug_pub_.publish(debug);
         }
@@ -1344,13 +1408,17 @@ std::vector<Eigen::Vector2d> buildHumanCaneFootprintWorld(
 
     void PlannerManager::GoalCallback(const geometry_msgs::PoseStamped::ConstPtr &msg)
     {
+#ifdef CANE_MANAGER_INTERLEAVING_TEST
+        if(goal_entry_test_hook_)goal_entry_test_hook_();
+#endif
+        std::lock_guard<std::mutex> lock(dynObsMutex_);
         if (msg->pose.position.z < -0.1)
             return;
         Eigen::Vector2d new_goal(msg->pose.position.x, msg->pose.position.y);
         double yaw = QuatenionToYaw(msg->pose.orientation);
         if (shouldIgnoreDuplicateGoal(new_goal, yaw, "2D Nav"))
             return;
-        resetCorridorForGoal();
+        resetCorridorForGoalLocked();
         end_pt_ = new_goal;
         end_state_(0) = msg->pose.position.x;
         end_state_(1) = msg->pose.position.y;
@@ -1373,13 +1441,15 @@ std::vector<Eigen::Vector2d> buildHumanCaneFootprintWorld(
     }
     void PlannerManager::waypointCallback(const nav_msgs::PathConstPtr &msg)
     {
+        std::lock_guard<std::mutex> lock(dynObsMutex_);
+        if(msg->poses.empty())return;
         if (msg->poses[0].pose.position.z < -0.1)
             return;
         Eigen::Vector2d new_goal(msg->poses[0].pose.position.x, msg->poses[0].pose.position.y);
         double yaw = QuatenionToYaw(msg->poses[0].pose.orientation);
         if (shouldIgnoreDuplicateGoal(new_goal, yaw, "waypoint"))
             return;
-        resetCorridorForGoal();
+        resetCorridorForGoalLocked();
         end_pt_ = new_goal;
         end_state_(0) = msg->poses[0].pose.position.x;
         end_state_(1) = msg->poses[0].pose.position.y;
@@ -1561,12 +1631,13 @@ std::vector<Eigen::Vector2d> buildHumanCaneFootprintWorld(
         mpc_dynamic_body_pub_.publish(markers);
     }
 
-    void PlannerManager::resetCorridorForGoal()
+    void PlannerManager::resetCorridorForGoalLocked()
     {
-        std::lock_guard<std::mutex> lock(dynObsMutex_);
         corridor_failure_capture_.resetForGoal();
         if (planner_==3) {
             ++pedestrian_generation_; // invalidate an outstanding plan on goal reset too
+            initial_route_active_=false;
+            if(mpc_controller_) {mpc_controller_->clearConvexCorridor();mpc_controller_->resetWarmStart();}
             clearPedestrianMarkersLocked();
         }
     }
@@ -1676,11 +1747,13 @@ std::vector<Eigen::Vector2d> buildHumanCaneFootprintWorld(
     {
         if (planner_ == 3) {
             const ros::Time receipt = ros::Time::now();
+            const auto callback_started=std::chrono::steady_clock::now();
 #ifdef CANE_MANAGER_INTERLEAVING_TEST
             if (pedestrian_callback_entry_test_hook_) pedestrian_callback_entry_test_hook_();
 #endif
             std::lock_guard<std::mutex> lock(dynObsMutex_);
             if (!pedestrians_enabled_) return; // disabled sources cannot invalidate static plans
+            pedestrian_callback_wait_seconds_=std::chrono::duration<double>(std::chrono::steady_clock::now()-callback_started).count();
             ++pedestrian_generation_; // includes malformed and same-stamp enabled frames
             receivePedestrians(msg, receipt);
             if (!pedestrian_frame_valid_ || pedestrian_observations_.empty()) clearPedestrianMarkersLocked();
@@ -1784,7 +1857,11 @@ std::vector<Eigen::Vector2d> buildHumanCaneFootprintWorld(
                     else
                         changeFSMExecState(REPLAN_TRAJ);
                 }
-                else if (planner_ == 3 || planner_ == 4)
+                else if (planner_ == 3)
+                {
+                    activatePlanner3Route();
+                }
+                else if (planner_ == 4)
                 {
                     // A* 全局规划 → 生成 waypoints，MPC 局部追踪
                     bool astar_ok = callAstarPlan();
@@ -1864,7 +1941,11 @@ std::vector<Eigen::Vector2d> buildHumanCaneFootprintWorld(
                     else
                         changeFSMExecState(REPLAN_TRAJ);
                 }
-                else if (planner_ == 3 || planner_ == 4)
+                else if (planner_ == 3)
+                {
+                    activatePlanner3Route();
+                }
+                else if (planner_ == 4)
                 {
                     // 重规划：从当前位置重新跑 A* + 生成 waypoints
                     if (!callAstarPlan())
@@ -2017,6 +2098,28 @@ std::vector<Eigen::Vector2d> buildHumanCaneFootprintWorld(
         exec_state_ = new_state;
         // cout << "[now]: from " + state_str[pre_s] + " to " + state_str[int(new_state)] << endl;
     }
+    void PlannerManager::activatePlanner3Route()
+    {
+        std::lock_guard<std::mutex> lock(dynObsMutex_);
+        // Search, route materialization, LFPC initialization and activation all
+        // belong to this goal. Queued goals are accepted only after commit.
+        if(exec_state_!=GEN_NEW_TRAJ && exec_state_!=REPLAN_TRAJ)return;
+        const bool found=callAstarPlan();
+#ifdef CANE_MANAGER_INTERLEAVING_TEST
+        if(after_initial_search_test_hook_)after_initial_search_test_hook_();
+#endif
+        if(!found) {
+            if(gazebo_sim_) {geometry_msgs::Twist cmd;cmd_vel_pub_.publish(cmd);}
+            changeFSMExecState(REPLAN_TRAJ);
+            return; // retry next existing FSM cycle, never sleep under this lock
+        }
+        generateGlobalWaypoints();
+        if(global_waypoints_.size()<2) {changeFSMExecState(REPLAN_TRAJ);return;}
+        mpcSimInit();
+        initial_route_active_=true;
+        changeFSMExecState(MPC_STEP);
+    }
+
     bool PlannerManager::callAstarPlan()
     {
         static int num = 0;
@@ -2038,6 +2141,7 @@ std::vector<Eigen::Vector2d> buildHumanCaneFootprintWorld(
             // list = astar_finder_->getPath();
             // double len = getPathLen(list);
             // std::cout << len << ",1" << std::endl;
+            if(planner_==3) {global_waypoints_=astar_finder_->getPath();global_wp_idx_=0;}
             publishAstarPath();
         }
 
@@ -2383,6 +2487,48 @@ std::vector<Eigen::Vector2d> buildHumanCaneFootprintWorld(
         if (planner_ == 4)
             return kinematicMppiSimStep();
 
+        const auto transaction_started=std::chrono::steady_clock::now();
+        const double entry_ros=ros::Time::now().toSec();
+        // Scope-local message survives unlock; no shared diagnostic reads afterward.
+        struct PublishTransaction {
+            ros::Publisher publisher;
+            std_msgs::Float64MultiArray message;
+            std::chrono::steady_clock::time_point started;
+            double ros_started;
+            ~PublishTransaction() {
+                if(message.data.empty())return;
+                message.data[19]=std::chrono::duration<double>(std::chrono::steady_clock::now()-started).count();
+                message.data[20]=ros::Time::now().toSec()-ros_started;
+                if(publisher)publisher.publish(message);
+            }
+        } diagnostic{transaction_diag_pub_,{},transaction_started,entry_ros};
+        // Serialize goal/path reads as well as recovery with accepted observations.
+        std::unique_lock<std::mutex> execution_lock(dynObsMutex_);
+        transaction_diag_.fill(std::numeric_limits<double>::quiet_NaN());
+        transaction_diag_[0]=1.;transaction_diag_[1]=entry_ros;
+        transaction_diag_[2]=std::chrono::duration<double>(transaction_started.time_since_epoch()).count();
+        transaction_diag_[3]=entry_ros-last_transaction_ros_;
+        if(std::isfinite(last_transaction_ros_))transaction_diag_[4]=std::chrono::duration<double>(transaction_started-last_transaction_steady_).count();
+        last_transaction_ros_=entry_ros;last_transaction_steady_=transaction_started;
+        transaction_diag_[5]=pedestrians_enabled_?1.:0.;
+        transaction_diag_[6]=pedestrian_generation_;
+        if(pedestrians_enabled_ && !pedestrian_receipt_.isZero()) {
+            transaction_diag_[7]=pedestrian_header_.stamp.toSec();transaction_diag_[8]=pedestrian_receipt_.toSec();
+            transaction_diag_[9]=entry_ros-transaction_diag_[7];transaction_diag_[10]=entry_ros-transaction_diag_[8];
+            transaction_diag_[11]=pedestrian_callback_wait_seconds_;
+            transaction_diag_[29]=pedestrian_observations_.size();transaction_diag_[30]=pedestrian_frame_valid_?1.:0.;
+        }
+        transaction_diag_[12]=std::chrono::duration<double>(std::chrono::steady_clock::now()-transaction_started).count();
+        transaction_diag_[21]=1.; // no integration unless explicitly recorded below
+        std_msgs::MultiArrayDimension schema;
+        schema.label="planner3_transaction_v1;seconds;source_frame="+(pedestrians_enabled_?pedestrian_header_.frame_id:std::string("DISABLED"));
+        schema.size=schema.stride=33;diagnostic.message.layout.dim.push_back(schema);
+        auto capture_diagnostic=[&] {
+            transaction_diag_[18]=std::chrono::duration<double>(std::chrono::steady_clock::now()-transaction_started).count();
+            diagnostic.message.data.assign(transaction_diag_.begin(),transaction_diag_.end());
+        };
+        struct CaptureOnReturn {decltype(capture_diagnostic)& capture;bool active=true;~CaptureOnReturn(){if(active)capture();}} capture_guard{capture_diagnostic};
+        if(!initial_route_active_)return false; // a newly accepted goal requires its own initial search
         // 从缓存获取动态障碍物
         Eigen::Vector3d current_com = lfpc_model_->getCOMPos();
         if (gazebo_sim_)
@@ -2453,7 +2599,6 @@ std::vector<Eigen::Vector2d> buildHumanCaneFootprintWorld(
         // Current-frame geometry enters only the existing mandatory union check.
         // One accepted-observation transaction: no replacement gap during MPPI.
         // Waiting callbacks are ordered after commit, not checked by this cycle.
-        std::unique_lock<std::mutex> execution_lock(dynObsMutex_);
         PedestrianFrameToken captured_frame;
         auto convex_corridor_result = updateAndPublishConvexCorridorLocked(current_com, &captured_frame);
         const PedestrianFrameToken planned_frame = captured_frame;
@@ -2462,11 +2607,14 @@ std::vector<Eigen::Vector2d> buildHumanCaneFootprintWorld(
         else
             mpc_controller_->clearConvexCorridor();
 
+        const auto mppi_started=std::chrono::steady_clock::now();
         Eigen::Vector3d control = mpc_controller_->plan(lfpc_model_, mpc_sim_goal_);
+        transaction_diag_[16]=std::chrono::duration<double>(std::chrono::steady_clock::now()-mppi_started).count();
 #ifdef CANE_MANAGER_INTERLEAVING_TEST
         if (after_mppi_test_hook_) after_mppi_test_hook_();
 #endif
         // Original snapshot must still be fresh even though replacement is queued.
+        const auto authorization_started=std::chrono::steady_clock::now();
         if (!authorizePedestrianFrameLocked(planned_frame, ros::Time::now())) {
             convex_corridor_result=ConvexCorridor::Result();
             convex_corridor_result.failure_reason=ConvexCorridor::FailureReason::DYNAMIC_DATA_INVALID;
@@ -2474,15 +2622,20 @@ std::vector<Eigen::Vector2d> buildHumanCaneFootprintWorld(
             clearPedestrianMarkersLocked();
             publishConvexCorridorLocked(convex_corridor_result);
         }
+        transaction_diag_[17]=std::chrono::duration<double>(std::chrono::steady_clock::now()-authorization_started).count();
+        transaction_diag_[31]=static_cast<double>(convex_corridor_result.failure_reason);
         Eigen::Vector3d new_com = current_com;
         if (convex_corridor_result.feasible && mpc_controller_->lastPlanValid()) {
             // Integrate immediately after authorization, before debug/visual output.
+            const auto integration_started=std::chrono::steady_clock::now();
             lfpc_model_->SetCtrlParams(control);
             lfpc_model_->updateOneStep();
             const auto step_path = lfpc_model_->getStepCOMPath();
             for (const auto& pt : step_path) mpc_step_path_.push_back(pt);
             lfpc_model_->prepareNextStep();
             new_com = lfpc_model_->getCOMPos();
+            transaction_diag_[21]=0.;
+            transaction_diag_[32]=std::chrono::duration<double>(std::chrono::steady_clock::now()-integration_started).count();
         }
         if (mpc_debug_enable_)
         {
@@ -2638,6 +2791,7 @@ std::vector<Eigen::Vector2d> buildHumanCaneFootprintWorld(
         publishWaypointsList();
 
         // 增量发布可视化（每步更新）
+        capture_diagnostic();capture_guard.active=false;
         execution_lock.unlock(); // no pedestrian state below; do not hold over ROS sleep
         displayMpcPlan();
         publishMpcPath();
@@ -3119,7 +3273,7 @@ std::vector<Eigen::Vector2d> buildHumanCaneFootprintWorld(
     void PlannerManager::publishAstarPath()
     {
         vector<Eigen::Vector2d> list;
-        list = astar_finder_->getPath();
+        list = planner_==3 ? global_waypoints_ : astar_finder_->getPath();
         nav_msgs::Path path;
         path.header.frame_id = "world";
         path.header.stamp = ros::Time::now();
@@ -3165,7 +3319,7 @@ std::vector<Eigen::Vector2d> buildHumanCaneFootprintWorld(
 
         geometry_msgs::Point pt;
         vector<Eigen::Vector2d> list;
-        list = astar_finder_->getPath();
+        list = planner_==3 ? global_waypoints_ : astar_finder_->getPath();
         for (int i = 0; i < int(list.size()); i++)
         {
             pt.x = list[i](0);

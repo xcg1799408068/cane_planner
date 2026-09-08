@@ -5,6 +5,8 @@
 #include <limits>
 #include <vector>
 #include <mutex>
+#include <array>
+#include <std_msgs/Float64MultiArray.h>
 #include <cstdint>
 #ifdef CANE_MANAGER_INTERLEAVING_TEST
 #include <functional>
@@ -104,6 +106,12 @@ namespace cane_planner
         // Planner-3 source contract, separate from untouched planner-4 legacy data.
         bool pedestrians_enabled_ = false;
         bool pedestrian_frame_valid_ = false;
+        double pedestrian_callback_wait_seconds_ = std::numeric_limits<double>::quiet_NaN();
+        double last_transaction_ros_ = std::numeric_limits<double>::quiet_NaN();
+        std::chrono::steady_clock::time_point last_transaction_steady_;
+        // Access only under dynObsMutex_; copied to a cycle-local message before unlock.
+        std::array<double,33> transaction_diag_;
+        ros::Publisher transaction_diag_pub_;
         double pedestrian_max_age_ = .5;
         std_msgs::Header pedestrian_header_;
         ros::Time pedestrian_receipt_;
@@ -123,11 +131,18 @@ namespace cane_planner
         bool pedestrianDataValid(const ros::Time& now);
         bool authorizePedestrianFrameLocked(const PedestrianFrameToken&, const ros::Time&);
         void clearPedestrianMarkersLocked();
-        void resetCorridorForGoal();
+        void resetCorridorForGoalLocked();
+        std::string dynamic_recovery_reason_ = "NOT_NEEDED";
+        uint64_t dynamic_recovery_attempts_ = 0;
+        double dynamic_recovery_seconds_ = 0.;
+        ConvexCorridor::Result recoverDynamicRouteLocked(const Eigen::Vector3d& pose,
+            const std::vector<ConvexCorridor::Polygon>& polygons, const ConvexCorridor::Result& blocked);
 #ifdef CANE_MANAGER_INTERLEAVING_TEST
         // Compiled only into the manager regression target, absent from runtime.
         std::function<void()> after_mppi_test_hook_, geometry_locked_test_hook_;
         std::function<void()> pedestrian_callback_entry_test_hook_;
+        std::function<void()> after_recovery_search_test_hook_;
+        std::function<void()> after_initial_search_test_hook_, goal_entry_test_hook_;
 #endif
 
         // MPC 规划结果缓存 (用于可视化)
@@ -264,7 +279,9 @@ namespace cane_planner
         tf::TransformListener tf_listener_;
 
         /*---------- helper function -----------*/
-        bool callAstarPlan();
+        bool callAstarPlan(); // planner 3 caller owns dynObsMutex_
+        void activatePlanner3Route();
+        bool initial_route_active_ = false;
         bool callKinodynamicAstarPlan();
         void loadSimPath();     // 从当前planner提取路径到sim_path_
         void stepSimMotion();   // 沿sim_path_推进odom (所有planner通用)

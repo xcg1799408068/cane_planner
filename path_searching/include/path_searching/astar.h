@@ -8,6 +8,7 @@
 #include <unordered_map>
 #include <boost/functional/hash.hpp>
 #include <queue>
+#include <chrono>
 
 #include <ros/console.h>
 #include <ros/ros.h>
@@ -130,6 +131,15 @@ namespace cane_planner
     double corridor_edge_clearance_ = -1.0;
     bool append_goal_ = false;
     Eigen::Vector2d exact_goal_;
+    const std::vector<Eigen::Vector2d>* recovery_polygon_ = nullptr; // query-scoped, never map state
+    std::chrono::steady_clock::time_point recovery_deadline_;
+    struct SearchProfile {
+      double hard_seconds=0.,soft_seconds=0.,grid_seconds=0.;
+      size_t hard_calls=0,soft_calls=0,grid_calls=0,expanded=0,soft_skipped=0;
+    };
+    SearchProfile recovery_profile_;
+    bool recovery_timed_out_ = false;
+    bool recoveryDeadline();
     bool corridorEdgeFree(const Eigen::Vector2d& a, const Eigen::Vector2d& b);
     double corridorEdgeCost(const Eigen::Vector2d& a, const Eigen::Vector2d& b);
     double corridorHeuristic(const Eigen::Vector2d& a, const Eigen::Vector2d& b) const;
@@ -167,6 +177,18 @@ namespace cane_planner
     bool search(Eigen::Vector2d start_pt, Eigen::Vector2d end_pt, bool dynamic = false,
                double time_start = -1.0);
 
+    enum class RecoveryStatus { FOUND, NO_PATH, TIMEOUT, INVALID_INPUT, INCOMPLETE_PATH };
+    struct RecoveryResult {
+      RecoveryStatus status = RecoveryStatus::NO_PATH;
+      std::vector<Eigen::Vector2d> path;
+      double seconds = 0.;
+      SearchProfile profile;
+    };
+    RecoveryResult searchRecovery(const Eigen::Vector2d& start, const Eigen::Vector2d& goal,
+        const std::vector<Eigen::Vector2d>& polygon, std::chrono::steady_clock::time_point deadline);
+    static bool polygonEdgeFree(const Eigen::Vector2d& a, const Eigen::Vector2d& b,
+        const std::vector<Eigen::Vector2d>& polygon, double clearance);
+    static bool validRecoveryPolygon(const std::vector<Eigen::Vector2d>& polygon);
     // void setEnvironment(const EDTEnvironment::Ptr &env);
     void setCollision(const CollisionDetection::Ptr &col);
     std::vector<Eigen::Vector2d> getPath();

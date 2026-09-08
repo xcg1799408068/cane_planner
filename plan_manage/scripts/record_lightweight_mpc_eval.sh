@@ -7,6 +7,18 @@ import sys
 
 TOPICS = [
     "/clock",
+    "/mpc/transaction_diagnostics",
+    "/move_base_simple/goal",
+    "/initialpose",
+    "/rosout",
+    "/rosout_agg",
+    "/astar/path",
+    "/planning_vis/kinpath_sample",
+    "/planning_vis/trajectory",
+    "/mpc/convex_corridor",
+    "/mpc/convex_corridor_debug",
+    "/Odometry",
+    "/odom_world",
     "/mpc/debug_metrics",
     "/mpc/stop_advice",
     "/mpc/stop_reason",

@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 #include <path_searching/astar.h>
+#include <iomanip>
 #include <path_searching/corridor_failure_snapshot.h>
 #include <chrono>
 #ifndef ASTAR_EDGE_FIXTURE_DIR
@@ -260,4 +261,68 @@ TEST(AstarClearance, OmittedLegacySigmaFallback) {
     EXPECT_DOUBLE_EQ(AstarEdgeTestAccess::sigma(a),.8);
 }
 
+TEST(AstarRecovery, WholePolygonCrossingTangencyAndContainment) {
+    const std::vector<Eigen::Vector2d> p{{0,0},{1,0},{1,1},{0,1}};
+    ASSERT_TRUE(Astar::validRecoveryPolygon(p));
+    EXPECT_FALSE(Astar::polygonEdgeFree({-.5,.5},{1.5,.5},p,.002));
+    EXPECT_FALSE(Astar::polygonEdgeFree({.5,.5},{.5,.5},p,.002));
+    EXPECT_FALSE(Astar::polygonEdgeFree({-.5,0},{1.5,0},p,0.));
+    EXPECT_FALSE(Astar::polygonEdgeFree({-.5,-.001},{1.5,-.001},p,.002));
+    EXPECT_TRUE(Astar::polygonEdgeFree({-.5,-.002},{1.5,-.002},p,.002));
+    EXPECT_FALSE(Astar::validRecoveryPolygon({{0,0},{0,1},{1,0}}));
+}
+TEST(AstarRecovery, ExactGoalDetourAndEmptyOverlayEquivalence) {
+    auto g=passage(.1,3.);Astar a;AstarEdgeTestAccess::init(a,g);AstarEdgeTestAccess::preference(a);
+    const Eigen::Vector2d start(.13,1.5),goal(5.37,1.5);
+    ASSERT_TRUE(a.search(start,goal));const auto plain=a.getPath();
+    const auto deadline=[] {return std::chrono::steady_clock::now()+std::chrono::seconds(2);};
+    const auto empty=a.searchRecovery(start,goal,{},deadline());
+    ASSERT_EQ(Astar::RecoveryStatus::FOUND,empty.status);EXPECT_EQ(plain,empty.path);
+    const std::vector<Eigen::Vector2d> p{{2.,1.},{3.,1.},{3.,2.},{2.,2.}};
+    const auto r=a.searchRecovery(start,goal,p,deadline());
+    ASSERT_EQ(Astar::RecoveryStatus::FOUND,r.status);EXPECT_EQ(start,r.path.front());EXPECT_EQ(goal,r.path.back());
+    for(size_t i=1;i<r.path.size();++i) {
+        EXPECT_TRUE(Astar::polygonEdgeFree(r.path[i-1],r.path[i],p,.002));
+        EXPECT_TRUE(AstarEdgeTestAccess::edge(a,r.path[i-1],r.path[i]));
+    }
+    std::cout<<"PROFILE hard_s="<<r.profile.hard_seconds<<" soft_s="<<r.profile.soft_seconds<<" grid_s="<<r.profile.grid_seconds<<" hard_calls="<<r.profile.hard_calls<<" soft_calls="<<r.profile.soft_calls<<" grid_calls="<<r.profile.grid_calls<<" expanded="<<r.profile.expanded<<std::endl;
+    std::cout<<"RECOVERY grid="<<g.width<<"x"<<g.height<<" seconds="<<r.seconds<<" edges="<<r.path.size()-1<<std::endl;
+    a.reset();ASSERT_TRUE(a.search(start,goal));EXPECT_EQ(plain,a.getPath()); // no persistent overlay
+}
+TEST(AstarRecovery, BlockedEndpointsImpossiblePassageDeadlineAndPartialReject) {
+    auto g=passage(.1,1.);Astar a;AstarEdgeTestAccess::init(a,g);
+    const std::vector<Eigen::Vector2d> p{{2.,-.1},{3.,-.1},{3.,1.1},{2.,1.1}};
+    auto end=[] {return std::chrono::steady_clock::now()+std::chrono::milliseconds(200);};
+    for(const auto& pair:{std::make_pair(Eigen::Vector2d(2.5,.5),Eigen::Vector2d(5,.5)),std::make_pair(Eigen::Vector2d(0,.5),Eigen::Vector2d(2.5,.5))}) {
+        const auto r=a.searchRecovery(pair.first,pair.second,p,end());EXPECT_NE(Astar::RecoveryStatus::FOUND,r.status);EXPECT_TRUE(r.path.empty());
+    }
+    auto r=a.searchRecovery({0,.5},{5,.5},p,end());EXPECT_NE(Astar::RecoveryStatus::FOUND,r.status);EXPECT_TRUE(r.path.empty());
+    std::cout<<"NO_PATH seconds="<<r.seconds<<std::endl;
+    r=a.searchRecovery({0,.5},{5,.5},p,std::chrono::steady_clock::now());EXPECT_EQ(Astar::RecoveryStatus::TIMEOUT,r.status);
+    AstarEdgeTestAccess::horizon(a,.3);r=a.searchRecovery({0,.5},{5,.5},{},end());
+    EXPECT_EQ(Astar::RecoveryStatus::INCOMPLETE_PATH,r.status);EXPECT_TRUE(r.path.empty());
+}
+TEST(AstarRecovery, SoftPruningFrozenInputsAndFloatTies) {
+    for(double weight:{0.,1.}) {
+        auto g=passage(.1,3.);Astar a;AstarEdgeTestAccess::init(a,g);AstarEdgeTestAccess::preference(a,weight);
+        const std::vector<Eigen::Vector2d> polygon{{2.,1.},{3.,1.},{3.,2.},{2.,2.}};
+        const auto r=a.searchRecovery({.13,1.5},{5.37,1.5},polygon,std::chrono::steady_clock::now()+std::chrono::seconds(2));
+        ASSERT_EQ(Astar::RecoveryStatus::FOUND,r.status);
+        EXPECT_GT(r.profile.soft_skipped,0u);
+        EXPECT_GT(r.profile.soft_calls,0u); // improving/unseen candidates still costed
+        std::cout<<std::setprecision(17)<<"PRUNING weight="<<weight<<" seconds="<<r.seconds<<" expanded="<<r.profile.expanded
+                 <<" hard="<<r.profile.hard_calls<<" soft="<<r.profile.soft_calls<<" skipped="<<r.profile.soft_skipped
+                 <<" cost="<<cost(a,r.path)<<" route=";
+        for(const auto& p:r.path)std::cout<<p.x()<<","<<p.y()<<";";
+        std::cout<<std::endl;
+        for(size_t i=1;i<r.path.size();++i)EXPECT_TRUE(AstarEdgeTestAccess::edge(a,r.path[i-1],r.path[i]));
+    }
+    // Equality and adjacent floating values: monotonic lower sum cannot hide an improvement.
+    for(double g:{0.,.1,1e10})for(double length:{0.,.1,std::nextafter(.1,1.)}) {
+        const double lower=g+length;
+        for(double factor:{1.,std::nextafter(1.,2.),2.})EXPECT_GE(g+length*factor,lower);
+        EXPECT_FALSE(lower<std::nextafter(lower,-std::numeric_limits<double>::infinity()));
+        EXPECT_TRUE(lower<std::nextafter(lower,std::numeric_limits<double>::infinity()));
+    }
+}
 int main(int argc,char** argv) { ros::init(argc,argv,"test_astar_edges",ros::init_options::AnonymousName);testing::InitGoogleTest(&argc,argv);return RUN_ALL_TESTS(); }

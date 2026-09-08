@@ -7,6 +7,14 @@ using namespace Eigen;
 
 namespace cane_planner
 {
+  namespace {
+    struct ProfileScope {
+      double* value;std::chrono::steady_clock::time_point start;
+      explicit ProfileScope(double* v):value(v) {if(value)start=std::chrono::steady_clock::now();}
+      ~ProfileScope(){if(value)*value+=std::chrono::duration<double>(std::chrono::steady_clock::now()-start).count();}
+    };
+  }
+
   Astar::~Astar()
   {
     for (int i = 0; i < allocate_num_; i++)
@@ -15,10 +23,81 @@ namespace cane_planner
     }
   }
 
+  bool Astar::validRecoveryPolygon(const std::vector<Eigen::Vector2d>& p)
+  {
+    if(p.empty())return true;
+    if(p.size()<3 || p.size()>32)return false;
+    for(const auto& v:p)if(!v.allFinite() || v.cwiseAbs().maxCoeff()>1e4 || (v-p.front()).norm()>20)return false;
+    for(size_t i=0;i<p.size();++i) {
+      const Eigen::Vector2d e=p[(i+1)%p.size()]-p[i];
+      if(e.norm()<1e-8)return false;
+      for(size_t j=0;j<p.size();++j)if(j!=i && j!=(i+1)%p.size()) {
+        const Eigen::Vector2d d=p[j]-p[i];if(e.x()*d.y()-e.y()*d.x()<=1e-10)return false;
+      }
+    }
+    return true;
+  }
+  bool Astar::polygonEdgeFree(const Eigen::Vector2d& a,const Eigen::Vector2d& b,
+                             const std::vector<Eigen::Vector2d>& p,double clearance)
+  {
+    if(!a.allFinite() || !b.allFinite() || !std::isfinite(clearance) || clearance<0 || !validRecoveryPolygon(p))return false;
+    if(p.empty())return true;
+    auto distance=[](const Eigen::Vector2d& q,const Eigen::Vector2d& u,const Eigen::Vector2d& v) {
+      const Eigen::Vector2d e=v-u;const double t=e.squaredNorm()>0?std::max(0.,std::min(1.,(q-u).dot(e)/e.squaredNorm())):0.;
+      return (q-u-t*e).norm();
+    };
+    double lo=0.,hi=1.,gap=std::numeric_limits<double>::infinity();
+    for(size_t i=0;i<p.size();++i) {
+      const auto& u=p[i];const auto& v=p[(i+1)%p.size()];const Eigen::Vector2d e=v-u;
+      const Eigen::Vector2d n(-e.y(),e.x());const double room=n.dot(a-u),slope=n.dot(b-a);
+      if(slope>0)lo=std::max(lo,-room/slope);
+      else if(slope<0)hi=std::min(hi,-room/slope);
+      else if(room<0){lo=1.;hi=0.;}
+      gap=std::min(gap,std::min(std::min(distance(a,u,v),distance(b,u,v)),std::min(distance(u,a,b),distance(v,a,b))));
+    }
+    return lo>hi && gap>=clearance; // closed full-polygon intersection, not vertex samples
+  }
+  bool Astar::recoveryDeadline()
+  {
+    if(recovery_polygon_ && std::chrono::steady_clock::now()>=recovery_deadline_)recovery_timed_out_=true;
+    return recovery_timed_out_;
+  }
+  Astar::RecoveryResult Astar::searchRecovery(const Eigen::Vector2d& start,const Eigen::Vector2d& goal,
+      const std::vector<Eigen::Vector2d>& polygon,std::chrono::steady_clock::time_point deadline)
+  {
+    RecoveryResult result;const auto began=std::chrono::steady_clock::now();
+    if(!start.allFinite() || !goal.allFinite() || start.cwiseAbs().maxCoeff()>1e4 || goal.cwiseAbs().maxCoeff()>1e4 ||
+       path_node_pool_.size()<2 || !validRecoveryPolygon(polygon) || !std::isfinite(corridor_edge_clearance_) || corridor_edge_clearance_<0 || recovery_polygon_) {
+      result.status=RecoveryStatus::INVALID_INPUT;return result;
+    }
+    recovery_profile_=SearchProfile();
+    reset();recovery_polygon_=&polygon;recovery_deadline_=deadline;recovery_timed_out_=false;
+    struct Cleanup {Astar* self;~Cleanup(){self->recovery_polygon_=nullptr;self->recovery_timed_out_=false;}} cleanup{this};
+    const bool found=!recoveryDeadline() && search(start,goal);
+    if(found) {
+      result.path=getPath();
+      if(result.path.size()<2 || result.path.front()!=start || result.path.back()!=goal)result.status=RecoveryStatus::INCOMPLETE_PATH;
+      else {
+        result.status=RecoveryStatus::FOUND;
+        for(size_t i=1;i<result.path.size();++i)if(recoveryDeadline() || !corridorEdgeFree(result.path[i-1],result.path[i])) {
+          result.status=RecoveryStatus::NO_PATH;break;
+        }
+      }
+    }
+    if(recoveryDeadline())result.status=RecoveryStatus::TIMEOUT;
+    if(result.status!=RecoveryStatus::FOUND)result.path.clear();
+    result.seconds=std::chrono::duration<double>(std::chrono::steady_clock::now()-began).count();
+    recovery_profile_.expanded=iter_num_;result.profile=recovery_profile_;
+    return result;
+  }
+
   bool Astar::corridorEdgeFree(const Eigen::Vector2d& a, const Eigen::Vector2d& b)
   {
+    ProfileScope profile(recovery_polygon_?&recovery_profile_.hard_seconds:nullptr);
+    if(recovery_polygon_)++recovery_profile_.hard_calls;
     if (!collision_ || !a.allFinite() || !b.allFinite() ||
         !std::isfinite(corridor_edge_clearance_) || corridor_edge_clearance_ < 0.) return false;
+    if(recoveryDeadline() || (recovery_polygon_ && !polygonEdgeFree(a,b,*recovery_polygon_,corridor_edge_clearance_)))return false;
     const double clearance = corridor_edge_clearance_;
     // Expand by a numerical guard only to enumerate both bins at exact grid
     // boundaries. Collision distances themselves have no permissive tolerance.
@@ -29,7 +108,11 @@ namespace cane_planner
     std::vector<uint8_t> blocked; std::string reason;
     // Candidate edges are one A* step: enumerate only their local native bins,
     // not a complete map or point samples along the edge.
-    if (!collision_->getStaticCorridorGrid(lower, upper, origin, resolution, size, blocked, reason)) return false;
+    bool grid_ok;
+    {ProfileScope grid_profile(recovery_polygon_?&recovery_profile_.grid_seconds:nullptr);
+     if(recovery_polygon_)++recovery_profile_.grid_calls;
+     grid_ok=collision_->getStaticCorridorGrid(lower, upper, origin, resolution, size, blocked, reason);}
+    if(!grid_ok)return false;
     const Eigen::Vector2d extent = origin + resolution * size.cast<double>();
     if ((a.cwiseMin(b).array() - clearance <= origin.array()).any() ||
         (a.cwiseMax(b).array() + clearance >= extent.array()).any()) return false;
@@ -40,6 +123,7 @@ namespace cane_planner
       return (p-u-t*e).norm();
     };
     for (int y=0; y<size.y(); ++y) for (int x=0; x<size.x(); ++x) {
+      if(recoveryDeadline())return false;
       if (!blocked[y*size.x()+x]) continue;
       const Eigen::Vector2d lo = origin + resolution*Eigen::Vector2d(x,y);
       const Eigen::Vector2d hi = lo + Eigen::Vector2d::Constant(resolution);
@@ -64,6 +148,8 @@ namespace cane_planner
 
   double Astar::corridorEdgeCost(const Eigen::Vector2d& a, const Eigen::Vector2d& b)
   {
+    ProfileScope profile(recovery_polygon_?&recovery_profile_.soft_seconds:nullptr);
+    if(recovery_polygon_)++recovery_profile_.soft_calls;
     const double length = (b-a).norm();
     if (w_clearance_ == 0. || length == 0.) return length;
     const double range = clearance_sigma_ + corridor_edge_clearance_;
@@ -72,12 +158,17 @@ namespace cane_planner
     std::vector<uint8_t> blocked; std::string reason;
     // Only the edge's finite preference neighborhood, using the SAME classifier
     // as the hard certificate. Raw ESDF distances have different semantics.
-    if (!collision_->getStaticCorridorGrid(a.cwiseMin(b)-padding, a.cwiseMax(b)+padding,
-        origin, resolution, size, blocked, reason)) return std::numeric_limits<double>::infinity();
+    bool grid_ok;
+    {ProfileScope grid_profile(recovery_polygon_?&recovery_profile_.grid_seconds:nullptr);
+     if(recovery_polygon_)++recovery_profile_.grid_calls;
+     grid_ok=collision_->getStaticCorridorGrid(a.cwiseMin(b)-padding,a.cwiseMax(b)+padding,origin,resolution,size,blocked,reason);}
+    if(!grid_ok)return std::numeric_limits<double>::infinity();
     const Eigen::Vector2d extent = origin + resolution*size.cast<double>();
     std::vector<Eigen::Vector2d> cells;
-    for (int y=0; y<size.y(); ++y) for (int x=0; x<size.x(); ++x)
+    for (int y=0; y<size.y(); ++y) for (int x=0; x<size.x(); ++x) {
+      if(recoveryDeadline())return std::numeric_limits<double>::infinity();
       if (blocked[y*size.x()+x]) cells.push_back(origin+resolution*Eigen::Vector2d(x,y));
+    }
 
     // Composite midpoint quadrature over the COMPLETE edge, not just its end.
     // Step <= 2 cm, half a native bin and 1/16 of the soft range. This is a
@@ -86,11 +177,13 @@ namespace cane_planner
     const int count = std::max(1, static_cast<int>(std::ceil(length/step)));
     double penalty = 0.;
     for (int i=0; i<count; ++i) {
+      if(recoveryDeadline())return std::numeric_limits<double>::infinity();
       const Eigen::Vector2d p = a+((i+.5)/count)*(b-a);
       // A cropped side is >= range away unless it is the real map boundary;
       // hence taking its distance cannot change the truncated penalty.
       double distance = std::min(range, std::min((p-origin).minCoeff(), (extent-p).minCoeff()));
       for (const auto& lo : cells) {
+        if(recoveryDeadline())return std::numeric_limits<double>::infinity();
         const Eigen::Vector2d hi = lo+Eigen::Vector2d::Constant(resolution);
         distance = std::min(distance, (p-p.cwiseMax(lo).cwiseMin(hi)).norm());
       }
@@ -140,6 +233,9 @@ namespace cane_planner
       return pt(0) > origin_(0) && pt(0) < map_max_2d_(0) &&
              pt(1) > origin_(1) && pt(1) < map_max_2d_(1);
     };
+    // Legacy neighborhood diagnostics are not needed by bounded recovery and
+    // can themselves be expensive at fine search resolutions.
+    if (!recovery_polygon_) {
     if (use_static)
     {
       bool start_free = collision_->isStaticTraversable(start_pt(0), start_pt(1));
@@ -189,6 +285,8 @@ namespace cane_planner
                         collision_->getCollisionDistance(end_pt));
     }
 
+    }
+    if(recoveryDeadline())return false;
     if (!in_astar_bounds(start_pt) || !in_astar_bounds(end_pt))
     {
       ROS_WARN("[Astar] Rejecting out-of-bounds endpoint: start=(%.2f, %.2f) in=%d, goal=(%.2f, %.2f) in=%d",
@@ -284,6 +382,7 @@ namespace cane_planner
     /* ---------- search loop ---------- */
     while (corridor_edges ? !corridor_open.empty() : !open_set_.empty())
     {
+      if(recoveryDeadline())return false;
       /* ---------- get lowest f_score node ---------- */
       if (corridor_edges) {
         const Entry entry = corridor_open.top();
@@ -414,6 +513,19 @@ namespace cane_planner
             continue;
           }
 
+          // The objective configuration above guarantees nonnegative soft cost.
+          // Use the SAME rounded endpoint subtraction as corridorEdgeCost.
+          // Monotone floating multiplication/addition makes this a lower bound
+          // on the actual candidate sum; equality cannot pass its strict update.
+          if(recoveryDeadline())return false;
+          if(corridor_edges && pro_node && std::isfinite(pro_node->g_score) &&
+             std::isfinite(cur_node->g_score)) {
+            const double lower=cur_node->g_score+(pro_pos-cur_pos).norm();
+            if(std::isfinite(lower) && lower>=pro_node->g_score) {
+              if(recovery_polygon_)++recovery_profile_.soft_skipped;
+              continue;
+            }
+          }
           /* ---------- compute cost ---------- */
           double tmp_g_score, tmp_f_score;
           tmp_g_score = cur_node->g_score + (corridor_edges ?

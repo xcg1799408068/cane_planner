@@ -1,4 +1,4 @@
-{"file":".trellis/spec/planning-runtime/current-frame-pedestrian-corridor.md","reason":"Review enable/freshness/TF/snapshot refusal and current-frame-only guarantees."}
+{"file":".trellis/spec/planning-runtime/current-frame-pedestrian-corridor.md","reason":"Review obstacle-only trigger, immutable A* overlay, exact-goal certified route commit, same-hull rebuild, deadlines and retained observation transaction."}
 {"file":".trellis/spec/planning-runtime/static-firi-corridor.md","reason":"Review static equivalence, whole-polygon exclusion and unchanged hard certificates."}
 {"file":".trellis/spec/planning-runtime/ros-interfaces-and-config.md","reason":"Review actual validity/TF/recovery transitions and frozen STOP odometry."}
 {"file":".trellis/spec/operator-visualization/markers-and-topics.md","reason":"Review body/social distinction, frame correctness and ghost clearing."}

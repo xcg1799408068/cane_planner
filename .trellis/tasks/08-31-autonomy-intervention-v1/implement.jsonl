@@ -1,4 +1,4 @@
-{"file":".trellis/spec/planning-runtime/current-frame-pedestrian-corridor.md","reason":"Approved first-version source/SFM/whole-polygon/diagnostics contracts and limitations."}
+{"file":".trellis/spec/planning-runtime/current-frame-pedestrian-corridor.md","reason":"Approved obstacle-triggered A* recovery and accepted-observation transaction; no starvation or dynamic-map pollution."}
 {"file":".trellis/spec/planning-runtime/static-firi-corridor.md","reason":"Preserve selected grid semantics, original-edge coverage, finite angular separation, MVIE and MPPI contracts."}
 {"file":".trellis/spec/planning-runtime/ros-interfaces-and-config.md","reason":"Source validity, TF and launch propagation; preserve actual STOP heartbeat."}
 {"file":".trellis/spec/operator-visualization/markers-and-topics.md","reason":"Transient body/social hull markers with stable namespaces and correct frames."}
